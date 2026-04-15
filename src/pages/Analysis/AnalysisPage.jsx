@@ -1,20 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import styles from './Analysis.module.css';
+import { Card, Select, Tabs, Tag, Typography, Space, Spin, Empty } from 'antd';
+import {
+    ClockCircleOutlined,
+    ShareAltOutlined,
+    PhoneOutlined,
+    BulbOutlined,
+    FolderOpenOutlined,
+    PieChartOutlined
+} from '@ant-design/icons';
 import TimelineView from './TimelineView';
 import KnowledgeGraphView from './KnowledgeGraphView';
 import CDRAnalysisView from './CDRAnalysisView';
 import InsightsView from './InsightsView';
 
-const TABS = [
-    { id: 'timeline', label: 'Timeline', icon: 'fa-regular fa-calendar-days' },
-    { id: 'graph', label: 'Knowledge Graph', icon: 'fa-solid fa-project-diagram' },
-    { id: 'cdr', label: 'CDR Analysis', icon: 'fa-solid fa-phone-flip' },
-    { id: 'insights', label: 'AI Insights', icon: 'fa-solid fa-brain' },
-];
+const { Title, Text, Paragraph } = Typography;
+const { Option } = Select;
 
 export default function AnalysisPage() {
     const [cases, setCases] = useState([]);
-    const [selectedCaseId, setSelectedCaseId] = useState('');
+    const [selectedCaseId, setSelectedCaseId] = useState(null);
     const [selectedCase, setSelectedCase] = useState(null);
     const [activeTab, setActiveTab] = useState('timeline');
     const [loading, setLoading] = useState(true);
@@ -46,101 +50,95 @@ export default function AnalysisPage() {
     };
 
     const statusColor = (status) => {
-        const map = { open: '#f59e0b', investigation: '#3b82f6', challan: '#8b5cf6', closed: '#10b981' };
-        return map[status] || '#6b7280';
+        const map = { open: 'warning', investigation: 'processing', challan: 'purple', closed: 'success' };
+        return map[status] || 'default';
     };
 
-    const typeColor = (type) => type === 'fir' ? '#ef4444' : '#f59e0b';
+    const typeColor = (type) => type === 'fir' ? 'error' : 'gold';
+
+    const tabItems = [
+        { key: 'timeline', label: <span><ClockCircleOutlined /> Timeline</span>, children: selectedCaseId ? <TimelineView caseId={selectedCaseId} headers={headers} /> : null },
+        { key: 'graph', label: <span><ShareAltOutlined /> Knowledge Graph</span>, children: selectedCaseId ? <KnowledgeGraphView caseId={selectedCaseId} headers={headers} /> : null },
+        { key: 'cdr', label: <span><PhoneOutlined /> CDR Analysis</span>, children: selectedCaseId ? <CDRAnalysisView caseId={selectedCaseId} headers={headers} /> : null },
+        { key: 'insights', label: <span><BulbOutlined /> AI Insights</span>, children: selectedCaseId ? <InsightsView caseId={selectedCaseId} headers={headers} /> : null },
+    ];
 
     return (
-        <div className={styles.container}>
+        <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
             {/* Header */}
-            <div className={styles.header}>
-                <div>
-                    <h1 className={styles.title}>
-                        <span className={styles.titleIcon}>
-                            <i className="fa-solid fa-chart-pie"></i>
-                        </span>
-                        Case Analytics & Visualization
-                    </h1>
-                    <p className={styles.subtitle}>
-                        LLM Wiki Graph · Entity Relationship · CDR Analysis · Investigation Insights
-                    </p>
-                </div>
+            <div style={{ marginBottom: 24 }}>
+                <Title level={3} style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <PieChartOutlined style={{ color: '#1890ff' }} />
+                    Case Analytics & Visualization
+                </Title>
+                <Text type="secondary">
+                    LLM Wiki Graph · Entity Relationship · CDR Analysis · Investigation Insights
+                </Text>
             </div>
 
-            {/* Case Selector */}
-            <div className={styles.selectorCard}>
-                <label className={styles.selectorLabel}>
-                    <i className="fa-solid fa-folder-open" style={{ marginRight: 6 }}></i>
-                    Select Case
-                </label>
-                <div className={styles.selectorRow}>
-                    <select
-                        className={styles.caseSelect}
-                        value={selectedCaseId}
-                        onChange={e => handleCaseChange(e.target.value)}
-                    >
-                        {cases.map(c => (
-                            <option key={c.id} value={c.id}>
-                                [{c.case_type.toUpperCase()}] {c.title} — {c.status}
-                            </option>
-                        ))}
-                    </select>
+            {/* Case Selector Card */}
+            <Card style={{ marginBottom: 24, borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <div>
+                        <Text strong type="secondary"><FolderOpenOutlined /> SELECT CASE</Text>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+                        <Select
+                            showSearch
+                            style={{ flex: 1, minWidth: 300 }}
+                            placeholder="Select a case"
+                            value={selectedCaseId}
+                            onChange={handleCaseChange}
+                            size="large"
+                            loading={loading}
+                            optionFilterProp="children"
+                        >
+                            {cases.map(c => (
+                                <Option key={c.id} value={c.id}>
+                                    [{c.case_type.toUpperCase()}] {c.title} — {c.status}
+                                </Option>
+                            ))}
+                        </Select>
+
+                        {selectedCase && (
+                            <Space style={{ marginTop: 4 }}>
+                                <Tag color={typeColor(selectedCase.case_type)}>{selectedCase.case_type.toUpperCase()}</Tag>
+                                <Tag color={statusColor(selectedCase.status)}>{selectedCase.status.toUpperCase()}</Tag>
+                                <Text type="secondary">
+                                    IO: <Text strong>{selectedCase.io_name || '—'}</Text> · {selectedCase.offense_section || 'No section'}
+                                </Text>
+                            </Space>
+                        )}
+                    </div>
                     {selectedCase && (
-                        <div className={styles.caseMeta}>
-                            <span className={styles.badge} style={{ background: typeColor(selectedCase.case_type) }}>
-                                {selectedCase.case_type.toUpperCase()}
-                            </span>
-                            <span className={styles.badge} style={{ background: statusColor(selectedCase.status) }}>
-                                {selectedCase.status}
-                            </span>
-                            <span className={styles.metaText}>
-                                IO: {selectedCase.io_name || '—'} · {selectedCase.offense_section || 'No section'}
-                            </span>
-                        </div>
+                        <Paragraph style={{ margin: 0, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                            {selectedCase.description}
+                        </Paragraph>
                     )}
                 </div>
-                {selectedCase && (
-                    <p className={styles.caseDesc}>{selectedCase.description}</p>
-                )}
-            </div>
-
-            {/* Tab Navigation */}
-            <div className={styles.tabBar}>
-                {TABS.map(tab => (
-                    <button
-                        key={tab.id}
-                        className={`${styles.tabBtn} ${activeTab === tab.id ? styles.tabActive : ''}`}
-                        onClick={() => setActiveTab(tab.id)}
-                    >
-                        <i className={tab.icon}></i>
-                        {tab.label}
-                    </button>
-                ))}
-            </div>
+            </Card>
 
             {/* Tab Content */}
-            <div className={styles.tabContent}>
+            <Card style={{ borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.06)', minHeight: 600 }} bodyStyle={{ padding: '0 0 24px 0' }}>
                 {loading ? (
-                    <div className={styles.loadingState}>
-                        <div className={styles.spinner} />
-                        <p>Loading case data...</p>
+                    <div style={{ textAlign: 'center', padding: '100px 0' }}>
+                        <Spin size="large" />
+                        <div style={{ marginTop: 16 }}><Text type="secondary">Loading case data...</Text></div>
                     </div>
                 ) : !selectedCaseId ? (
-                    <div className={styles.emptyState}>
-                        <i className="fa-regular fa-folder-open" style={{ fontSize: '2rem' }}></i>
-                        No cases found. Register a complaint to begin.
+                    <div style={{ padding: '100px 0' }}>
+                        <Empty description="No cases found. Register a complaint to begin." />
                     </div>
                 ) : (
-                    <>
-                        {activeTab === 'timeline' && <TimelineView caseId={selectedCaseId} headers={headers} />}
-                        {activeTab === 'graph' && <KnowledgeGraphView caseId={selectedCaseId} headers={headers} />}
-                        {activeTab === 'cdr' && <CDRAnalysisView caseId={selectedCaseId} headers={headers} />}
-                        {activeTab === 'insights' && <InsightsView caseId={selectedCaseId} headers={headers} />}
-                    </>
+                    <Tabs
+                        activeKey={activeTab}
+                        onChange={setActiveTab}
+                        items={tabItems}
+                        size="large"
+                        tabBarStyle={{ padding: '0 24px', marginBottom: 0, backgroundColor: 'var(--code-bg)', borderBottom: '1px solid var(--border)' }}
+                    />
                 )}
-            </div>
+            </Card>
         </div>
     );
 }

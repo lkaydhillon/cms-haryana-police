@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Card, Spin, Typography, Empty, Space, Tag, Descriptions, Button } from 'antd';
+import { ShareAltOutlined, InfoCircleOutlined, CloseOutlined } from '@ant-design/icons';
+
+const { Title, Text } = Typography;
 
 const NODE_COLORS = {
-    case: '#6366f1',
-    accused: '#ef4444',
-    victim: '#10b981',
-    witness: '#f59e0b',
-    event: '#3b82f6',
+    case: '#1890ff', // blue
+    accused: '#ff4d4f', // red
+    victim: '#52c41a', // green
+    witness: '#faad14', // yellow
+    event: '#722ed1', // purple
 };
 
 const NODE_LABELS = {
@@ -23,11 +27,22 @@ export default function KnowledgeGraphView({ caseId, headers }) {
     const [selected, setSelected] = useState(null);
     const [loading, setLoading] = useState(true);
     const [ForceGraphComp, setForceGraphComp] = useState(null);
+    const [isDarkMode, setIsDarkMode] = useState(false);
 
     useEffect(() => {
+        // Detect dark mode from the root element's styling or rely on CSS vars.
+        // In many antd+vite apps, dark mode sets data-theme="dark" or similar, 
+        // but computing window style also works. The user uses index.css dark prefers-color-scheme.
+        const matchMedia = window.matchMedia('(prefers-color-scheme: dark)');
+        setIsDarkMode(matchMedia.matches);
+        const handler = (e) => setIsDarkMode(e.matches);
+        matchMedia.addEventListener('change', handler);
+
         import('react-force-graph-2d').then(mod => {
             setForceGraphComp(() => mod.default);
         });
+
+        return () => matchMedia.removeEventListener('change', handler);
     }, []);
 
     useEffect(() => {
@@ -44,115 +59,95 @@ export default function KnowledgeGraphView({ caseId, headers }) {
     }, []);
 
     if (loading || !ForceGraphComp) return (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400, color: 'var(--text)', flexDirection: 'column', gap: 12 }}>
-            <div style={{ width: 32, height: 32, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-            Rendering knowledge graph...
+        <div style={{ textAlign: 'center', padding: '100px 0' }}>
+            <Spin size="large" />
+            <div style={{ marginTop: 16 }}><Text type="secondary">Rendering knowledge graph...</Text></div>
         </div>
     );
 
     if (!graphData || graphData.nodes?.length === 0) return (
-        <div style={{ padding: 32, textAlign: 'center', color: 'var(--text)' }}>
-            <i className="fa-solid fa-project-diagram" style={{ fontSize: '2rem', display: 'block', marginBottom: 12 }}></i>
-            No graph data for this case. Add persons and events to see relationships.
+        <div style={{ padding: '80px 0' }}>
+            <Empty
+                image={<ShareAltOutlined style={{ fontSize: 64, color: '#e8e8e8' }} />}
+                description="No graph data for this case. Add persons and events to see relationships."
+            />
         </div>
     );
 
     return (
-        <div style={{ display: 'flex', height: 560 }}>
-            {/* Graph */}
-            <div style={{ flex: 1, position: 'relative' }}>
-                <div style={{
-                    position: 'absolute', top: 12, left: 12, zIndex: 10,
-                    background: 'var(--bg)', borderRadius: 10,
-                    padding: '10px 14px', border: '1px solid var(--border)',
-                    fontSize: '0.78rem', boxShadow: 'var(--shadow)',
-                }}>
-                    <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 8 }}>
-                        <i className="fa-solid fa-layer-group" style={{ marginRight: 6 }}></i>Legend
-                    </div>
-                    {Object.entries(NODE_COLORS).map(([type, color]) => (
-                        <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                            <div style={{ width: 10, height: 10, borderRadius: '50%', background: color }} />
-                            <span style={{ color: 'var(--text)' }}>{NODE_LABELS[type]}</span>
-                        </div>
-                    ))}
-                    <div style={{ marginTop: 10, color: 'var(--text)', fontSize: '0.7rem', opacity: 0.8 }}>
-                        <i className="fa-solid fa-info-circle" style={{ marginRight: 4 }}></i>Click a node for details
-                    </div>
-                </div>
+        <div style={{ display: 'flex', height: 600, width: '100%' }}>
+            {/* Graph Area */}
+            <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+                {/* Legend Overlay */}
+                <Card size="small" style={{ position: 'absolute', top: 16, left: 16, zIndex: 10, borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.15)', background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                    <Title level={5} style={{ margin: '0 0 12px', fontSize: 13 }}><ShareAltOutlined /> Legend</Title>
+                    <Space direction="vertical" size={4}>
+                        {Object.entries(NODE_COLORS).map(([type, color]) => (
+                            <div key={type} style={{ display: 'flex', alignItems: 'center' }}>
+                                <div style={{ width: 10, height: 10, borderRadius: '50%', background: color, marginRight: 8 }} />
+                                <Text style={{ fontSize: 13 }}>{NODE_LABELS[type]}</Text>
+                            </div>
+                        ))}
+                        <Text type="secondary" style={{ fontSize: 11, marginTop: 8 }}><InfoCircleOutlined /> Click node for details</Text>
+                    </Space>
+                </Card>
 
                 <ForceGraphComp
                     graphData={graphData}
-                    width={selected ? undefined : undefined}
+                    width={undefined}
                     nodeLabel="label"
                     nodeColor={node => NODE_COLORS[node.type] || '#94a3b8'}
                     nodeVal={node => node.val || 5}
                     linkLabel="label"
                     linkDirectionalArrowLength={4}
                     linkDirectionalArrowRelPos={1}
-                    linkColor={() => 'var(--text)'}
+                    linkColor={() => isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}
                     onNodeClick={handleNodeClick}
                     nodeCanvasObjectMode={() => 'after'}
                     nodeCanvasObject={(node, ctx, globalScale) => {
-                        const label = node.label?.length > 18 ? node.label.slice(0, 18) + '…' : node.label;
-                        const fontSize = Math.max(10 / globalScale, 3);
-                        ctx.font = `${fontSize}px Inter, sans-serif`;
+                        const label = node.label?.length > 20 ? node.label.slice(0, 20) + '…' : node.label;
+                        const fontSize = Math.max(12 / globalScale, 3);
+                        ctx.font = `600 ${fontSize}px Inter, sans-serif`;
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'top';
-                        ctx.fillStyle = '#1e293b';
-                        ctx.fillText(label, node.x, node.y + (node.val || 5) / 1.5 + 2);
+
+                        // Text color logic for readability
+                        ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#1f1f1f';
+
+                        // Text stroke for contrast
+                        ctx.lineWidth = 2 / globalScale;
+                        ctx.strokeStyle = isDarkMode ? '#141414' : '#ffffff';
+                        ctx.strokeText(label, node.x, node.y + (node.val || 5) / 1.5 + 4);
+                        ctx.fillText(label, node.x, node.y + (node.val || 5) / 1.5 + 4);
                     }}
-                    backgroundColor="var(--code-bg)"
                 />
             </div>
 
-            {/* Side panel */}
+            {/* Side Panel for Node Details */}
             {selected && (
-                <div style={{
-                    width: 260,
-                    background: 'var(--bg)',
-                    borderLeft: '1px solid var(--border)',
-                    padding: 20,
-                    overflowY: 'auto',
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <h4 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700, color: 'var(--text-h)' }}>
-                            Node Details
-                        </h4>
-                        <button
-                            onClick={() => setSelected(null)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', fontSize: 18, lineHeight: 1 }}
-                        >
-                            <i className="fa-solid fa-xmark"></i>
-                        </button>
+                <div style={{ width: 320, borderLeft: '1px solid var(--border)', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Title level={5} style={{ margin: 0 }}>Node Details</Title>
+                        <Button type="text" icon={<CloseOutlined />} onClick={() => setSelected(null)} />
                     </div>
 
-                    <div style={{
-                        display: 'inline-block',
-                        padding: '4px 10px',
-                        borderRadius: 20,
-                        background: 'var(--code-bg)',
-                        border: `1px solid ${NODE_COLORS[selected.type] || 'var(--border)'}`,
-                        color: NODE_COLORS[selected.type] || 'var(--text)',
-                        fontWeight: 700,
-                        fontSize: '0.72rem',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                        marginBottom: 16,
-                    }}>
-                        {NODE_LABELS[selected.type] || selected.type}
+                    <div style={{ padding: '20px', overflowY: 'auto' }}>
+                        <Tag color={NODE_COLORS[selected.type]} style={{ marginBottom: 16, fontSize: 13, padding: '4px 12px' }}>
+                            {NODE_LABELS[selected.type] || selected.type.toUpperCase()}
+                        </Tag>
+
+                        <Title level={4} style={{ marginTop: 0, marginBottom: 24, fontSize: '18px' }}>{selected.label}</Title>
+
+                        {selected.details && (
+                            <Descriptions column={1} size="small" layout="vertical" bordered>
+                                {Object.entries(selected.details).map(([k, v]) => v && (
+                                    <Descriptions.Item key={k} label={<span style={{ textTransform: 'capitalize', color: 'var(--text)' }}>{k}</span>}>
+                                        <Text strong>{v}</Text>
+                                    </Descriptions.Item>
+                                ))}
+                            </Descriptions>
+                        )}
                     </div>
-
-                    <p style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-h)', margin: '0 0 16px' }}>
-                        {selected.label}
-                    </p>
-
-                    {selected.details && Object.entries(selected.details).map(([k, v]) => v && (
-                        <div key={k} style={{ marginBottom: 12, fontSize: '0.85rem' }}>
-                            <div style={{ color: 'var(--text)', textTransform: 'capitalize', marginBottom: 2, opacity: 0.8 }}>{k}</div>
-                            <div style={{ color: 'var(--text-h)', fontWeight: 500, wordBreak: 'break-all' }}>{v}</div>
-                        </div>
-                    ))}
                 </div>
             )}
         </div>
