@@ -1,184 +1,49 @@
-/* Analysis Module – Styles */
+/* Analysis Module — Shared component styles */
+/* Uses CSS variables from index.css — no hard-coded colours here */
 
 .container {
-  padding: 24px;
-  max-width: 1400px;
-  margin: 0 auto;
+  padding: 20px;
   font-family: var(--sans);
   color: var(--text);
 }
 
-/* Header */
-.header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
-.title {
-  font-size: 1.6rem;
+/* ── Section titles inside views ────────────────────────────────────────── */
+.sectionTitle {
+  font-size: 1rem;
   font-weight: 700;
   color: var(--text-h);
-  margin: 0 0 4px 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  margin: 0 0 14px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--heading);
 }
 
-.titleIcon {
-  font-size: 1.6rem;
-  color: var(--accent);
-}
-
-.subtitle {
-  font-size: 0.85rem;
-  color: var(--text);
-  margin: 0;
-  opacity: 0.8;
-}
-
-/* Case Selector */
-.selectorCard {
+/* ── Generic card inside view ────────────────────────────────────────────── */
+.card {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 18px 20px;
-  margin-bottom: 16px;
-  box-shadow: var(--shadow);
-}
-
-.selectorLabel {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  display: block;
-  margin-bottom: 8px;
-}
-
-.selectorRow {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-
-.caseSelect {
-  flex: 1;
-  min-width: 280px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  border: 1.5px solid var(--border);
-  background: var(--code-bg);
-  font-size: 0.9rem;
-  color: var(--text-h);
-  cursor: pointer;
-  outline: none;
-  transition: all 0.2s;
-}
-
-.caseSelect:focus {
-  border-color: var(--accent);
-}
-
-.caseMeta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.badge {
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: 0.04em;
-}
-
-.metaText {
-  font-size: 0.85rem;
-  color: var(--text);
-}
-
-.caseDesc {
-  margin: 12px 0 0 0;
-  font-size: 0.9rem;
-  color: var(--text);
-  line-height: 1.5;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-
-/* Tabs */
-.tabBar {
-  display: flex;
-  gap: 4px;
-  background: var(--code-bg);
   border-radius: 10px;
-  padding: 6px;
-  margin-bottom: 20px;
-  width: fit-content;
-  border: 1px solid var(--border);
-}
-
-.tabBtn {
-  padding: 10px 20px;
-  border: none;
-  background: transparent;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--text);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tabBtn:hover {
-  background: var(--accent-bg);
-  color: var(--accent);
-}
-
-.tabActive {
-  background: var(--bg);
-  color: var(--text-h);
-  font-weight: 600;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
-}
-
-/* Tab Content */
-.tabContent {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  min-height: 480px;
+  padding: 16px 18px;
+  margin-bottom: 12px;
   box-shadow: var(--shadow);
-  overflow: hidden;
 }
 
-/* States */
+/* ── Loading / empty states ──────────────────────────────────────────────── */
 .loadingState,
 .emptyState {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 300px;
-  color: var(--text);
-  font-size: 1rem;
-  gap: 16px;
-  opacity: 0.7;
+  height: 320px;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  gap: 14px;
 }
 
 .spinner {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border: 3px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
@@ -186,29 +51,35 @@
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
-/* Shared sub-component styles (used by children) */
+/* ── View container ─────────────────────────────────────────────────────── */
 .viewContainer {
   padding: 24px;
 }
 
-.sectionTitle {
-  font-size: 1.1rem;
+/* ── Document drawer / panel text ───────────────────────────────────────── */
+.docTitle {
+  font-size: 1rem;
   font-weight: 700;
   color: var(--text-h);
-  margin: 0 0 16px 0;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
 }
 
-.card {
+.docMeta {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 4px 0 16px;
+}
+
+.docBody {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--text);
+  white-space: pre-wrap;
+  font-family: var(--mono);
   background: var(--code-bg);
+  border-radius: 8px;
+  padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
-  margin-bottom: 12px;
 }
