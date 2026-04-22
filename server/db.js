@@ -1,4 +1,4 @@
-﻿import Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -470,16 +470,7 @@ if (profileCount === 0) {
     { id: 'usr-3', username: 'sho_1', password: 'sho123', role: 'sho', full_name: 'SHO Kumar', badge_number: 'SHO-201', rank: 'Inspector', station_id: 'stn-1' },
   ];
   db.transaction((rows) => rows.forEach(r => insertProfile.run(r)))(seedProfiles);
-  console.log('âœ… Seed profiles created.');full_name, badge_number, rank, station_id)
-    VALUES (@id, @username, @password, @role, @full_name, @badge_number, @rank, @station_id)
-  `);
-  const seedProfiles = [
-    { id: 'usr-1', username: 'admin', password: 'admin123', role: 'admin', full_name: 'Test Admin', badge_number: 'ADM-001', rank: 'SP', station_id: 'hq' },
-    { id: 'usr-2', username: 'io_1', password: 'io123', role: 'io', full_name: 'Investigating Officer Singh', badge_number: 'IO-101', rank: 'SI', station_id: 'stn-1' },
-    { id: 'usr-3', username: 'sho_1', password: 'sho123', role: 'sho', full_name: 'SHO Kumar', badge_number: 'SHO-201', rank: 'Inspector', station_id: 'stn-1' },
-  ];
-  db.transaction((rows) => rows.forEach(r => insertProfile.run(r)))(seedProfiles);
-  console.log('âœ… Seed profiles created.');
+  console.log('✅ Seed profiles created.');
 }
 
 // â”€â”€â”€ Seed analysis data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
