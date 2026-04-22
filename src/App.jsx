@@ -5,6 +5,7 @@ import { ProtectedRoute } from './components/Auth/ProtectedRoute';
 import AppShell from './components/Layout/AppShell';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import Investigation from './pages/Investigation';
 import AnalysisPage from './pages/Analysis/AnalysisPage';
 
 // Module Placeholders
@@ -27,7 +28,7 @@ export default function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/complaints" element={<Placeholder title="M1: Complaints" />} />
               <Route path="/fir" element={<Placeholder title="M2: FIRs" />} />
-              <Route path="/investigation" element={<Placeholder title="M3: Investigation Guide" />} />
+              <Route path="/investigation" element={<Investigation />} />
               <Route path="/hc-reply" element={<Placeholder title="M4: HC Reply" />} />
               <Route path="/analysis" element={<AnalysisPage />} />
               <Route path="/search" element={<Placeholder title="M6: Smart Search" />} />
