@@ -8,7 +8,7 @@ const __dirname = dirname(__filename);
 // Open database in the root folder
 const db = new Database(join(__dirname, '../data.db'));
 
-// ─── Profiles ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Profiles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 db.exec(`
   CREATE TABLE IF NOT EXISTS profiles (
     id TEXT PRIMARY KEY,
@@ -22,9 +22,155 @@ db.exec(`
     status TEXT DEFAULT 'active',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS firs (
+    id TEXT PRIMARY KEY,
+    fir_number TEXT UNIQUE NOT NULL,
+
+    -- Section 1: Basic Details
+    district TEXT NOT NULL,
+    police_station TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    date_time_of_fir TEXT NOT NULL,
+
+    -- Section 2: Acts & Sections (JSON array)
+    acts_sections TEXT NOT NULL DEFAULT '[]',
+
+    -- Section 3: Occurrence of Offence
+    occurrence_day TEXT,
+    occurrence_date_from TEXT,
+    occurrence_date_to TEXT,
+    occurrence_time_period TEXT,
+    occurrence_time_from TEXT,
+    occurrence_time_to TEXT,
+    info_received_date TEXT,
+    info_received_time TEXT,
+    gd_entry_no TEXT,
+    gd_date_time TEXT,
+
+    -- Section 4: Type of Information
+    info_type TEXT DEFAULT 'Written',
+
+    -- Section 5: Place of Occurrence
+    place_direction TEXT,
+    place_distance TEXT,
+    beat_no TEXT,
+    place_address TEXT,
+    latitude REAL,
+    longitude REAL,
+    outside_ps_name TEXT,
+    outside_district TEXT,
+
+    -- Section 6: Complainant Details
+    complainant_name TEXT NOT NULL,
+    complainant_father_name TEXT,
+    complainant_dob TEXT,
+    complainant_nationality TEXT DEFAULT 'INDIA',
+    complainant_uid TEXT,
+    complainant_passport TEXT,
+    complainant_id_details TEXT DEFAULT '[]',
+    complainant_occupation TEXT,
+    complainant_present_address TEXT,
+    complainant_permanent_address TEXT,
+    complainant_phone TEXT,
+
+    -- Section 7: Accused Details (JSON array)
+    accused_details TEXT NOT NULL DEFAULT '[]',
+
+    -- Section 8: Delay Reason
+    delay_reason TEXT,
+
+    -- Section 9 & 10: Property Details (JSON array) & Total Value
+    property_details TEXT NOT NULL DEFAULT '[]',
+    total_property_value REAL DEFAULT 0,
+
+    -- Section 12: FIR Narrative Content
+    fir_content TEXT NOT NULL,
+
+    -- Section 13: Action Taken
+    io_name TEXT,
+    io_rank TEXT,
+    io_no TEXT,
+    refused_reason TEXT,
+    transferred_ps TEXT,
+    transferred_district TEXT,
+
+    -- Section 14: Officer in Charge
+    officer_name TEXT,
+    officer_rank TEXT,
+    officer_no TEXT,
+
+    -- Section 15: Dispatch
+    dispatch_date_time TEXT,
+
+    -- Meta
+    status TEXT DEFAULT 'registered',
+    registered_by TEXT NOT NULL,
+    complaint_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS cdr_requests (
+    id TEXT PRIMARY KEY,
+    fir_id TEXT NOT NULL,
+    phone_number TEXT NOT NULL,
+    status TEXT DEFAULT 'requested',
+    tsp_name TEXT,
+    requested_by TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(fir_id) REFERENCES firs(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS arrests (
+    id TEXT PRIMARY KEY,
+    fir_id TEXT NOT NULL,
+    accused_name TEXT NOT NULL,
+    date_of_arrest TEXT NOT NULL,
+    arrest_memo TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(fir_id) REFERENCES firs(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS notices (
+    id TEXT PRIMARY KEY,
+    fir_id TEXT NOT NULL,
+    notice_type TEXT NOT NULL,
+    content TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(fir_id) REFERENCES firs(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS evidences (
+    id TEXT PRIMARY KEY,
+    fir_id TEXT NOT NULL,
+    description TEXT NOT NULL,
+    location TEXT,
+    extra_details TEXT,
+    seizure_memo TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(fir_id) REFERENCES firs(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS challans (
+    id TEXT PRIMARY KEY,
+    fir_id TEXT NOT NULL,
+    io_notes TEXT,
+    final_report TEXT,
+    generated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(fir_id) REFERENCES firs(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS case_diaries (
+    id TEXT PRIMARY KEY,
+    fir_id TEXT NOT NULL,
+    entry_text TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(fir_id) REFERENCES firs(id)
+  );
 `);
 
-// ─── Analysis Module Tables ───────────────────────────────────────────────────
+// â”€â”€â”€ Analysis Module Tables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS cases (
@@ -95,7 +241,7 @@ db.exec(`
   );
 `);
 
-// ─── New AI Analysis Tables ────────────────────────────────────────────────────
+// â”€â”€â”€ New AI Analysis Tables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 db.exec(`
   CREATE TABLE IF NOT EXISTS bank_transactions (
     id TEXT PRIMARY KEY,
@@ -160,7 +306,46 @@ db.exec(`
   );
 `);
 
-// ─── Seed profiles ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Auto-migrate tables for new columns â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+try {
+  const tableInfo = db.pragma('table_info(firs)');
+  const hasLatitude = tableInfo.some(col => col.name === 'latitude');
+  if (!hasLatitude) {
+    db.exec(`ALTER TABLE firs ADD COLUMN latitude REAL; ALTER TABLE firs ADD COLUMN longitude REAL;`);
+    console.log('Added latitude and longitude columns to firs table.');
+  }
+  const hasComplaintId = tableInfo.some(col => col.name === 'complaint_id');
+  if (!hasComplaintId) {
+    db.exec(`ALTER TABLE firs ADD COLUMN complaint_id TEXT;`);
+    console.log('Added complaint_id column to firs table.');
+  }
+  const evidenceTableInfo = db.pragma('table_info(evidences)');
+  const hasMediaFile = evidenceTableInfo.some(col => col.name === 'media_file');
+  if (!hasMediaFile) {
+    db.exec(`ALTER TABLE evidences ADD COLUMN media_file TEXT;`);
+    console.log('Added media_file column to evidences table.');
+  }
+  const arrestTableInfo = db.pragma('table_info(arrests)');
+  const existingArrestCols = arrestTableInfo.map(col => col.name);
+  const newArrestCols = [
+    ['arresting_officer_name', 'TEXT'], ['arresting_officer_rank', 'TEXT'],
+    ['arresting_officer_badge', 'TEXT'], ['arresting_officer_post', 'TEXT'],
+    ['accused_address', 'TEXT'], ['arrest_place', 'TEXT'],
+    ['informed_person_name', 'TEXT'], ['informed_person_address', 'TEXT'],
+    ['informed_person_phone', 'TEXT'], ['witness_name', 'TEXT'], ['witness_post', 'TEXT'],
+  ];
+  for (const [col, type] of newArrestCols) {
+    if (!existingArrestCols.includes(col)) {
+      db.exec(`ALTER TABLE arrests ADD COLUMN ${col} ${type};`);
+      console.log(`Added ${col} column to arrests table.`);
+    }
+  }
+} catch (err) {
+  console.log('Migration note:', err.message);
+}
+
+
+// Seed profiles
 const profileCount = db.prepare('SELECT COUNT(*) as c FROM profiles').get().c;
 if (profileCount === 0) {
   const insertProfile = db.prepare(`
@@ -173,28 +358,28 @@ if (profileCount === 0) {
     { id: 'usr-3', username: 'sho_1', password: 'sho123', role: 'sho', full_name: 'SHO Kumar', badge_number: 'SHO-201', rank: 'Inspector', station_id: 'stn-1' },
   ];
   db.transaction((rows) => rows.forEach(r => insertProfile.run(r)))(seedProfiles);
-  console.log('✅ Seed profiles created.');
+  console.log('Seed profiles created.');
 }
 
-// ─── Seed analysis data ────────────────────────────────────────────────────────
+// â”€â”€â”€ Seed analysis data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const caseCount = db.prepare('SELECT COUNT(*) as c FROM cases').get().c;
 if (caseCount === 0) {
   // Insert cases
   db.prepare(`INSERT INTO cases (id, title, case_type, status, offense_section, station_id, io_id, registered_at, description)
     VALUES (?,?,?,?,?,?,?,?,?)`).run(
-    'case-001', 'Mobile Theft – Sector 14 Market', 'complaint', 'open',
+    'case-001', 'Mobile Theft â€“ Sector 14 Market', 'complaint', 'open',
     'BNS 303', 'stn-1', 'usr-2', '2026-04-01 10:30:00',
     'Complainant Ramesh Kumar reports theft of iPhone 14 from busy market area. Suspects fled on motorcycle.'
   );
   db.prepare(`INSERT INTO cases (id, title, case_type, status, offense_section, station_id, io_id, registered_at, description)
     VALUES (?,?,?,?,?,?,?,?,?)`).run(
-    'case-002', 'FIR – Cyber Fraud ₹2.5 Lakh', 'fir', 'investigation',
+    'case-002', 'FIR â€“ Cyber Fraud â‚¹2.5 Lakh', 'fir', 'investigation',
     'BNS 318, IT Act 66C', 'stn-1', 'usr-2', '2026-03-20 14:00:00',
-    'Victim Priya Sharma transferred ₹2.5 lakh after receiving fraudulent call from "bank official". Multiple accused involved.'
+    'Victim Priya Sharma transferred â‚¹2.5 lakh after receiving fraudulent call from "bank official". Multiple accused involved.'
   );
   db.prepare(`INSERT INTO cases (id, title, case_type, status, offense_section, station_id, io_id, registered_at, description)
     VALUES (?,?,?,?,?,?,?,?,?)`).run(
-    'case-003', 'FIR – Drug Peddling (NDPS)', 'fir', 'challan',
+    'case-003', 'FIR â€“ Drug Peddling (NDPS)', 'fir', 'challan',
     'NDPS Act 20(b)(ii)', 'stn-1', 'usr-3', '2026-02-10 09:15:00',
     'Accused Vikram Yadav and Suresh Nain apprehended with 500g of cannabis near bus stand.'
   );
@@ -211,7 +396,7 @@ if (caseCount === 0) {
   const evts2 = [
     ['evt-101', 'case-002', '2026-03-20 14:00:00', 'registration', 'FIR registered. Victim Priya Sharma reported cyber fraud', 'usr-2', 'PS Sector 14'],
     ['evt-102', 'case-002', '2026-03-21 10:00:00', 'statement', 'Victim statement recorded. Call from 9876543210 identified as fraud number', 'usr-2', 'PS Sector 14'],
-    ['evt-103', 'case-002', '2026-03-22 12:00:00', 'evidence', 'Bank transaction records obtained showing ₹2.5L transfer', 'usr-2', 'Online'],
+    ['evt-103', 'case-002', '2026-03-22 12:00:00', 'evidence', 'Bank transaction records obtained showing â‚¹2.5L transfer', 'usr-2', 'Online'],
     ['evt-104', 'case-002', '2026-03-25 15:00:00', 'arrest', 'Accused Deepak Sharma arrested from Gurugram. Deepak Sharma confessed to operating fraud network', 'usr-2', 'Gurugram'],
     ['evt-105', 'case-002', '2026-03-28 09:00:00', 'evidence', 'Seized mobile phones sent for forensic examination', 'usr-2', 'Forensic Lab'],
     ['evt-106', 'case-002', '2026-04-01 11:00:00', 'statement', 'Statement of co-accused Rahul Verma recorded', 'usr-2', 'PS Sector 14'],
@@ -269,7 +454,7 @@ if (caseCount === 0) {
   // Seed wiki pages for case-002
   db.prepare('INSERT INTO case_wiki_pages (case_id, page_slug, content_md, updated_at) VALUES (?,?,?,?)').run(
     'case-002', 'index',
-    `# Wiki Index – Cyber Fraud Case (FIR)
+    `# Wiki Index â€“ Cyber Fraud Case (FIR)
 
 | Page | Summary |
 |---|---|
@@ -283,22 +468,22 @@ if (caseCount === 0) {
   );
   db.prepare('INSERT INTO case_wiki_pages (case_id, page_slug, content_md, updated_at) VALUES (?,?,?,?)').run(
     'case-002', 'entities',
-    `# Entities – Cyber Fraud Case
+    `# Entities â€“ Cyber Fraud Case
 
 ## Persons
-- **Priya Sharma** (Victim) – Phone: 9876501234, Sector 22
-- **Deepak Sharma** (Accused) – Phone: 9876543210, Gurugram – *Primary fraudster, arrested*
-- **Rahul Verma** (Accused) – Phone: 9123456789, Delhi – *Co-conspirator, in custody*
-- **Bank Manager Mohan** (Witness) – SBI Branch – *Confirmed no legitimate call was made*
+- **Priya Sharma** (Victim) â€“ Phone: 9876501234, Sector 22
+- **Deepak Sharma** (Accused) â€“ Phone: 9876543210, Gurugram â€“ *Primary fraudster, arrested*
+- **Rahul Verma** (Accused) â€“ Phone: 9123456789, Delhi â€“ *Co-conspirator, in custody*
+- **Bank Manager Mohan** (Witness) â€“ SBI Branch â€“ *Confirmed no legitimate call was made*
 
 ## Phone Numbers (from CDR)
-- 9876543210 – Deepak Sharma (Accused) – *Called victim 3 times on day of fraud*
-- 9123456789 – Rahul Verma (Accused) – *Coordinated with Deepak before and after fraud*
-- 9000000001 – Unknown – *Received call from accused post-fraud, identity pending*
-- 9000000002 – Unknown – *Identity pending; possible money mule*
+- 9876543210 â€“ Deepak Sharma (Accused) â€“ *Called victim 3 times on day of fraud*
+- 9123456789 â€“ Rahul Verma (Accused) â€“ *Coordinated with Deepak before and after fraud*
+- 9000000001 â€“ Unknown â€“ *Received call from accused post-fraud, identity pending*
+- 9000000002 â€“ Unknown â€“ *Identity pending; possible money mule*
 
 ## Bank Accounts
-- Victim account ending **4521** – ₹2.5L debited on 2026-03-20
+- Victim account ending **4521** â€“ â‚¹2.5L debited on 2026-03-20
 - Mule account in Gurugram bank (details in forensic report)
 `,
     '2026-04-01T10:00:00Z'
@@ -308,8 +493,8 @@ if (caseCount === 0) {
     `# Investigative Leads
 
 ## Active
-- [ ] Identify phone number 9000000001 (likely money mule) – request CDR from TSP
-- [ ] Identify phone number 9000000002 – request CDR
+- [ ] Identify phone number 9000000001 (likely money mule) â€“ request CDR from TSP
+- [ ] Identify phone number 9000000002 â€“ request CDR
 - [ ] Trace mule bank account to its registered phone & address
 - [ ] Check if Deepak Sharma has prior complaints in other stations
 - [ ] Digital forensics on Deepak's mobile: WhatsApp, call records
@@ -327,8 +512,8 @@ if (caseCount === 0) {
     `# Contradictions & Inconsistencies
 
 ## Flagged
-- ⚠️ **Rahul Verma's Statement vs. CDR**: Rahul states he did not contact the victim, but CDR shows his number (9123456789) called victim's number on 2026-03-19 at 10:30 (317 sec). *Follow up required.*
-- ⚠️ **Location of Deepak at time of fraud**: Deepak claims he was in Delhi on 2026-03-20, but CDR tower data shows his phone was active on TWR-GGN-01 (Gurugram) during the fraud call.
+- âš ï¸ **Rahul Verma's Statement vs. CDR**: Rahul states he did not contact the victim, but CDR shows his number (9123456789) called victim's number on 2026-03-19 at 10:30 (317 sec). *Follow up required.*
+- âš ï¸ **Location of Deepak at time of fraud**: Deepak claims he was in Delhi on 2026-03-20, but CDR tower data shows his phone was active on TWR-GGN-01 (Gurugram) during the fraud call.
 `,
     '2026-04-06T09:00:00Z'
   );
@@ -337,7 +522,7 @@ if (caseCount === 0) {
     `# Case Log
 
 ## [2026-03-22] ingest | Victim Statement | 2 entities, 2 events extracted
-## [2026-03-25] ingest | Arrest Memo – Deepak Sharma | 1 entity, 1 event extracted
+## [2026-03-25] ingest | Arrest Memo â€“ Deepak Sharma | 1 entity, 1 event extracted
 ## [2026-03-28] ingest | CDR Analysis | 4 phone numbers, 10 call records loaded
 ## [2026-04-01] query | "Who are the key suspects?" | pages consulted: entities
 ## [2026-04-06] lint | Health check | 0 missing pages, 2 active contradictions flagged
@@ -345,10 +530,10 @@ if (caseCount === 0) {
     '2026-04-06T10:00:00Z'
   );
 
-  console.log('✅ Analysis seed data created.');
+  console.log('âœ… Analysis seed data created.');
 }
 
-// ─── Seed bank transactions & AI analysis data ────────────────────────────────
+// â”€â”€â”€ Seed bank transactions & AI analysis data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const bankCount = db.prepare('SELECT COUNT(*) as c FROM bank_transactions').get().c;
 if (bankCount === 0) {
   const insertTxn = db.prepare(`
@@ -357,26 +542,26 @@ if (bankCount === 0) {
   `);
 
   const transactions = [
-    // Victim Priya Sharma — A/C ending 4521 (SBI, Sector 22 branch)
-    ['btxn-001','case-002','2026-03-15','Salary credit — HDFC Payroll',null,48000,210000,'SAL-31550421','xxxx4521',0],
+    // Victim Priya Sharma â€” A/C ending 4521 (SBI, Sector 22 branch)
+    ['btxn-001','case-002','2026-03-15','Salary credit â€” HDFC Payroll',null,48000,210000,'SAL-31550421','xxxx4521',0],
     ['btxn-002','case-002','2026-03-16','Amazon Online Purchase',1299,null,208701,'UPI/AMZ-7891','xxxx4521',0],
-    ['btxn-003','case-002','2026-03-17','ATM Withdrawal — Sector 22',5000,null,203701,'ATM-SEC22','xxxx4521',0],
-    ['btxn-004','case-002','2026-03-18','Electricity Bill — DHBVN',2143,null,201558,'NACH-DHBVN','xxxx4521',0],
-    ['btxn-005','case-002','2026-03-20','IMPS Transfer — fraudulent — "bank KYC verification"',50000,null,151558,'IMPS-9876543210','xxxx4521',1],
-    ['btxn-006','case-002','2026-03-20','NEFT Transfer — "Account verification fee"',100000,null,51558,'NEFT-GGN-MULE1','xxxx4521',1],
-    ['btxn-007','case-002','2026-03-20','UPI Transfer — "Refund processing"',100000,null,-48442,'UPI-9000000001','xxxx4521',1],
+    ['btxn-003','case-002','2026-03-17','ATM Withdrawal â€” Sector 22',5000,null,203701,'ATM-SEC22','xxxx4521',0],
+    ['btxn-004','case-002','2026-03-18','Electricity Bill â€” DHBVN',2143,null,201558,'NACH-DHBVN','xxxx4521',0],
+    ['btxn-005','case-002','2026-03-20','IMPS Transfer â€” fraudulent â€” "bank KYC verification"',50000,null,151558,'IMPS-9876543210','xxxx4521',1],
+    ['btxn-006','case-002','2026-03-20','NEFT Transfer â€” "Account verification fee"',100000,null,51558,'NEFT-GGN-MULE1','xxxx4521',1],
+    ['btxn-007','case-002','2026-03-20','UPI Transfer â€” "Refund processing"',100000,null,-48442,'UPI-9000000001','xxxx4521',1],
     ['btxn-008','case-002','2026-03-21','Overdraft triggered',null,null,-48442,'OD-AUTO','xxxx4521',0],
-    ['btxn-009','case-002','2026-03-22','Reverse charge attempt — FAILED',null,null,-48442,'REV-FAIL-001','xxxx4521',0],
+    ['btxn-009','case-002','2026-03-22','Reverse charge attempt â€” FAILED',null,null,-48442,'REV-FAIL-001','xxxx4521',0],
     ['btxn-010','case-002','2026-03-25','Police freeze order applied',null,null,-48442,'FREEZE-PS14','xxxx4521',0],
-    // Mule account — Deepak Sharma (Axis Bank GGN)
+    // Mule account â€” Deepak Sharma (Axis Bank GGN)
     ['btxn-011','case-002','2026-03-20','IMPS Received from victim xxxx4521',50000,null,62300,'IMPS-9876501234','yyyy8832',1],
     ['btxn-012','case-002','2026-03-20','NEFT Received from victim',100000,null,162300,'NEFT-SBI-SEC22','yyyy8832',1],
-    ['btxn-013','case-002','2026-03-20','ATM cash withdrawal — DLF ATM',49000,null,113300,'ATM-DLF-GGN','yyyy8832',1],
-    ['btxn-014','case-002','2026-03-20','NEFT Out — unknown beneficiary',90000,null,23300,'NEFT-OUT-CHAIN','yyyy8832',1],
-    ['btxn-015','case-002','2026-03-20','UPI Received — third transfer',100000,null,123300,'UPI-RCV-9876501234','yyyy8832',1],
+    ['btxn-013','case-002','2026-03-20','ATM cash withdrawal â€” DLF ATM',49000,null,113300,'ATM-DLF-GGN','yyyy8832',1],
+    ['btxn-014','case-002','2026-03-20','NEFT Out â€” unknown beneficiary',90000,null,23300,'NEFT-OUT-CHAIN','yyyy8832',1],
+    ['btxn-015','case-002','2026-03-20','UPI Received â€” third transfer',100000,null,123300,'UPI-RCV-9876501234','yyyy8832',1],
     ['btxn-016','case-002','2026-03-21','ATM withdrawal Rohini Delhi',49000,null,74300,'ATM-ROHINI','yyyy8832',1],
-    ['btxn-017','case-002','2026-03-21','NEFT Out — second chain transfer',60000,null,14300,'NEFT-CHAIN-2','yyyy8832',1],
-    ['btxn-018','case-002','2026-03-22','Account frozen — bank compliance',null,null,14300,'FREEZE-BANK','yyyy8832',0],
+    ['btxn-017','case-002','2026-03-21','NEFT Out â€” second chain transfer',60000,null,14300,'NEFT-CHAIN-2','yyyy8832',1],
+    ['btxn-018','case-002','2026-03-22','Account frozen â€” bank compliance',null,null,14300,'FREEZE-BANK','yyyy8832',0],
   ];
 
   db.transaction(rows => rows.forEach(r => insertTxn.run(...r)))(transactions);
@@ -393,7 +578,7 @@ if (bankCount === 0) {
     ['ip-004','case-002','182.71.210.33',443,'HTTPS','2026-03-20T09:05:00',85,2100,'Mumbai, Maharashtra','BSNL'],
     ['ip-005','case-002','103.21.58.12',443,'HTTPS','2026-03-20T13:40:00',1800,76230,'Delhi, Rohini','Jio'],
     ['ip-006','case-002','45.152.66.12',1080,'SOCKS5','2026-03-20T09:01:00',2400,12000,'Frankfurt, Germany','Hetzner'],
-    ['ip-007','case-002','10.192.168.1',0,'INTERNAL','2026-03-20T14:30:00',0,0,'Gurugram (Local)','—'],
+    ['ip-007','case-002','10.192.168.1',0,'INTERNAL','2026-03-20T14:30:00',0,0,'Gurugram (Local)','â€”'],
   ];
   db.transaction(rows => rows.forEach(r => insertIP.run(...r)))(ipRecords);
 
@@ -405,17 +590,17 @@ if (bankCount === 0) {
   const leads = [
     ['lead-001','case-002','Identify Unknown Number 9000000001','CDR analysis shows number 9000000001 received calls from accused Deepak Sharma immediately after the fraud. This is likely a money mule coordinator.',
      'high',0.92,'telecom','["CDR Records", "Case entities wiki"]','Request CDR/IPDR from TSP for number 9000000001. Cross-reference with bank beneficiary list.','CrPC Section 91, TRAI Guidelines','active'],
-    ['lead-002','case-002','Trace Complete Money Trail — ₹2.5 Lakh','Bank analysis shows ₹2.5L left victim account in 3 tranches within 2 hours. Mule account (yyyy8832) received funds and immediately withdrew ₹49K cash + NEFT to another account. Chain not fully traced.',
+    ['lead-002','case-002','Trace Complete Money Trail â€” â‚¹2.5 Lakh','Bank analysis shows â‚¹2.5L left victim account in 3 tranches within 2 hours. Mule account (yyyy8832) received funds and immediately withdrew â‚¹49K cash + NEFT to another account. Chain not fully traced.',
      'high',0.96,'financial','["Bank Statement", "Case diary"]','Obtain complete bank statement of yyyy8832 account. Trace NEFT-CHAIN-2 beneficiary. Request RBI freeze on all connected accounts.','CrPC Section 91, PMLA Section 17','active'],
     ['lead-003','case-002','IP Address 45.152.66.12 Routes Through VPN (Germany)','IPDR analysis reveals accused used a SOCKS5 proxy based in Frankfurt during the fraud window. Indicates planning and technical sophistication.',
      'high',0.88,'digital','["IPDR Report", "Forensic report"]','Submit MLAT request for IP records. Check if VPN provider has Indian LE cooperation agreement. Cross-reference with dark web activity.','IPC Section 66(B) IT Act','active'],
     ['lead-004','case-002','Rahul Verma Location Alibi Contradiction','Rahul Verma claims he was NOT in contact with the victim. CDR shows his number 9123456789 called 9876501234 (victim) at 10:30 on 2026-03-19 for 317 seconds. Location tower: Delhi Rohini.',
      'high',0.95,'witness','["CDR Records", "Statement of Rahul Verma"]','Confront Rahul Verma with CDR data. Record supplementary statement. Apply for narco analysis if required.','CrPC Section 161, 164','active'],
-    ['lead-005','case-002','Check Prior Fraud Cases in Delhi/NCR','Fraud pattern — fake bank call, immediate fund transfer, mule account — is characteristic of organized cybercrime gangs operating from Mewat/Delhi NCR.',
+    ['lead-005','case-002','Check Prior Fraud Cases in Delhi/NCR','Fraud pattern â€” fake bank call, immediate fund transfer, mule account â€” is characteristic of organized cybercrime gangs operating from Mewat/Delhi NCR.',
      'medium',0.78,'other','["Case profile", "entities"]','Run CCTNS search for Deepak Sharma in all states. Contact Gurugram Cyber Cell for gang-level intelligence.','CrPC Section 54','active'],
     ['lead-006','case-002','Forensic Extraction of WhatsApp from Seized Phones','Seized mobiles from Deepak Sharma sent to forensic lab. WhatsApp communications likely contain coordination with co-conspirators and instructions for mule account operation.',
      'medium',0.83,'digital','["Seizure memo", "Forensic report"]','Follow up with forensic lab for extraction report. Prioritize WhatsApp, Telegram, and call log analysis.','IT Act Section 65B, Evidence Act','active'],
-    ['lead-007','case-002','Identify Number 9000000002 — Second Mule','9000000002 received a call from accused post-fraud (Deepak → 9000000002 at 09:30 on 2026-03-20, 110 sec). Identity and location unknown.',
+    ['lead-007','case-002','Identify Number 9000000002 â€” Second Mule','9000000002 received a call from accused post-fraud (Deepak â†’ 9000000002 at 09:30 on 2026-03-20, 110 sec). Identity and location unknown.',
      'medium',0.74,'telecom','["CDR Records"]','Request subscriber details and CDR from TSP. Cross-reference with mule account beneficiary details.','CrPC Section 91','active'],
   ];
   db.transaction(rows => rows.forEach(r => insertLead.run(...r)))(leads);
@@ -431,26 +616,26 @@ if (bankCount === 0) {
      'critical','statement',
      'Rahul Verma states in his recorded statement (2026-03-21) that he had NO contact with the victim Priya Sharma. However, CDR records conclusively show his number (9123456789) called the victim (9876501234) on 2026-03-19 at 10:30 for 317 seconds.',
      'Accused Statement (Rahul Verma, 2026-03-21)',
-     'CDR Records — TSP Data for 9123456789',
+     'CDR Records â€” TSP Data for 9123456789',
      'This is a direct provable lie by the accused, indicating consciousness of guilt and active deception of the investigating officer.',
      'Confront Rahul Verma with CDR evidence in next interrogation. Record revised statement under CrPC 161. Present as evidence of false information to court.',
      'open'],
     ['cont-002','case-002',
      'Deepak Sharma: Location Alibi vs. CDR Tower Data',
      'critical','location',
-     'Deepak Sharma claims he was in Delhi on 2026-03-20 (the date of fraud). CDR tower records show his phone (9876543210) was active on TWR-GGN-01 (Gurugram, Sector 5) at 09:05 and TWR-GGN-02 (Gurugram Sector 9) at 09:30 — placing him in Gurugram, NOT Delhi, during the fraud calls.',
+     'Deepak Sharma claims he was in Delhi on 2026-03-20 (the date of fraud). CDR tower records show his phone (9876543210) was active on TWR-GGN-01 (Gurugram, Sector 5) at 09:05 and TWR-GGN-02 (Gurugram Sector 9) at 09:30 â€” placing him in Gurugram, NOT Delhi, during the fraud calls.',
      'Accused Statement (Deepak Sharma, post-arrest)',
-     'CDR Records — Tower location data for 9876543210',
+     'CDR Records â€” Tower location data for 9876543210',
      'Establishes that Deepak Sharma was physically present in Gurugram while conducting the fraud calls. Destroys his alibi completely.',
      'Prepare CDR tower data summary as court exhibit. Obtain geo-coordinates of TWR-GGN-01 and TWR-GGN-02. Cross-verify with CCTV in the area.',
      'open'],
     ['cont-003','case-002',
      'Bank Transfer Amount: FIR vs. Statement',
      'moderate','financial',
-     'The FIR states victim transferred ₹2.5 lakh. However, bank statement analysis shows three separate transactions: ₹50,000 + ₹1,00,000 + ₹1,00,000 = ₹2,50,000. The victim\'s initial complaint mentioned "one transfer of ₹2.5 lakh" — this is technically incorrect as 3 separate UPI/NEFT transfers were made.',
+     'The FIR states victim transferred â‚¹2.5 lakh. However, bank statement analysis shows three separate transactions: â‚¹50,000 + â‚¹1,00,000 + â‚¹1,00,000 = â‚¹2,50,000. The victim\'s initial complaint mentioned "one transfer of â‚¹2.5 lakh" â€” this is technically incorrect as 3 separate UPI/NEFT transfers were made.',
      'FIR (registered 2026-03-20)',
-     'Bank Statement — Priya Sharma SBI account xxxx4521',
-     'The distinction matters for chargesheet — 3 separate fraudulent inducements make the case stronger under IPC 420.',
+     'Bank Statement â€” Priya Sharma SBI account xxxx4521',
+     'The distinction matters for chargesheet â€” 3 separate fraudulent inducements make the case stronger under IPC 420.',
      'Amend FIR statement or add supplementary statement from victim. Record exact sequence of transactions with timestamps.',
      'open'],
     ['cont-004','case-002',
@@ -459,13 +644,13 @@ if (bankCount === 0) {
      'Forensic report received date (2026-04-10) is after the statement of co-accused Rahul Verma (2026-04-01). If Rahul\'s statement referenced forensic evidence, this would be impossible unless there was an earlier informal communication from the lab.',
      'Statement of Rahul Verma (2026-04-01)',
      'Forensic Report received (2026-04-10)',
-     'Minor procedural inconsistency — could affect admissibility if defense raises it.',
+     'Minor procedural inconsistency â€” could affect admissibility if defense raises it.',
      'Verify if an interim forensic report was received verbally before formal report date. Document all lab communications.',
      'closed'],
   ];
   db.transaction(rows => rows.forEach(r => insertCont.run(...r)))(contradictions);
 
-  console.log('✅ Bank transactions, IP records, leads, and contradictions seeded.');
+  console.log('âœ… Bank transactions, IP records, leads, and contradictions seeded.');
 }
 
 export default db;
