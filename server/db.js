@@ -214,10 +214,47 @@ db.exec(`
     case_id TEXT NOT NULL,
     doc_type TEXT NOT NULL,
     content_text TEXT,
+    file_name TEXT,
+    file_path TEXT,
+    file_size INTEGER,
+    mime_type TEXT,
+    content_hash TEXT,
+    language TEXT,
+    classification_confidence REAL,
+    extraction_method TEXT,
+    ocr_confidence REAL,
+    processing_status TEXT DEFAULT 'uploaded',
+    processing_error TEXT,
     uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (case_id) REFERENCES cases(id)
   );
+`);
 
+// Safe migrations for existing local databases.
+const runMigration = (sql) => {
+  try {
+    db.exec(sql);
+  } catch {
+    // SQLite raises duplicate-column errors when the migration already ran.
+  }
+};
+
+runMigration('ALTER TABLE case_documents ADD COLUMN file_name TEXT');
+runMigration('ALTER TABLE case_documents ADD COLUMN file_path TEXT');
+runMigration('ALTER TABLE case_documents ADD COLUMN file_size INTEGER');
+runMigration('ALTER TABLE case_documents ADD COLUMN mime_type TEXT');
+runMigration('ALTER TABLE case_documents ADD COLUMN content_hash TEXT');
+runMigration('ALTER TABLE case_documents ADD COLUMN language TEXT');
+runMigration('ALTER TABLE case_documents ADD COLUMN classification_confidence REAL');
+runMigration('ALTER TABLE case_documents ADD COLUMN extraction_method TEXT');
+runMigration('ALTER TABLE case_documents ADD COLUMN ocr_confidence REAL');
+runMigration("ALTER TABLE case_documents ADD COLUMN processing_status TEXT DEFAULT 'uploaded'");
+runMigration('ALTER TABLE case_documents ADD COLUMN processing_error TEXT');
+runMigration('CREATE INDEX IF NOT EXISTS idx_case_documents_case_hash ON case_documents(case_id, content_hash)');
+runMigration('CREATE INDEX IF NOT EXISTS idx_case_persons_case_phone ON case_persons(case_id, phone)');
+runMigration('CREATE INDEX IF NOT EXISTS idx_case_leads_case_title ON case_leads(case_id, title)');
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS cdr_records (
     id TEXT PRIMARY KEY,
     case_id TEXT NOT NULL,
@@ -512,8 +549,8 @@ if (caseCount === 0) {
     `# Contradictions & Inconsistencies
 
 ## Flagged
-- âš ï¸ **Rahul Verma's Statement vs. CDR**: Rahul states he did not contact the victim, but CDR shows his number (9123456789) called victim's number on 2026-03-19 at 10:30 (317 sec). *Follow up required.*
-- âš ï¸ **Location of Deepak at time of fraud**: Deepak claims he was in Delhi on 2026-03-20, but CDR tower data shows his phone was active on TWR-GGN-01 (Gurugram) during the fraud call.
+- WARNING **Rahul Verma's Statement vs. CDR**: Rahul states he did not contact the victim, but CDR shows his number (9123456789) called victim's number on 2026-03-19 at 10:30 (317 sec). *Follow up required.*
+- WARNING **Location of Deepak at time of fraud**: Deepak claims he was in Delhi on 2026-03-20, but CDR tower data shows his phone was active on TWR-GGN-01 (Gurugram) during the fraud call.
 `,
     '2026-04-06T09:00:00Z'
   );

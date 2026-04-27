@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Layout, Menu, Input, Button, Typography, Select, Tag, Spin, Alert, Empty, Progress } from 'antd';
+import { Layout, Menu, Input, Button, Typography, Select, Tag, Spin, Alert, Empty, Progress, Tooltip } from 'antd';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFile, faUsers, faCalendarDays, faMagnifyingGlass, faTriangleExclamation,
@@ -122,7 +122,9 @@ export default function InsightsView({ caseId, headers }) {
   const [ingesting, setIngesting] = useState(false);
   const [ingestResult, setIngestResult] = useState(null);
   const [ingestTab, setIngestTab] = useState('upload');
-  const [uploadedFile, setUploadedFile] = useState(null);
+  // Multi-file queue
+  const [fileQueue, setFileQueue] = useState([]); // [{name, size, file, status: 'pending'|'done'|'error', result}]
+  const [currentFileIndex, setCurrentFileIndex] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef(null);
@@ -140,7 +142,7 @@ export default function InsightsView({ caseId, headers }) {
       .catch(() => setLoading(false));
   };
 
-  useEffect(() => { fetchWiki(); setQueryResult(null); setIngestResult(null); setActivePage(null); }, [caseId]);
+  useEffect(() => { fetchWiki(); setQueryResult(null); setIngestResult(null); setActivePage(null); setFileQueue([]); }, [caseId]);
 
   const handleQuery = async (value) => {
     if (!value.trim()) return;
@@ -155,32 +157,58 @@ export default function InsightsView({ caseId, headers }) {
     setQuerying(false);
   };
 
-  const handleFileSelect = (file) => {
-    if (!file) return;
-    setUploadedFile({ name: file.name, size: file.size, file });
-    const reader = new FileReader();
-    reader.onload = e => { if (typeof e.target.result === 'string' && e.target.result.length < 200000) setIngestForm(p => ({ ...p, text: e.target.result })); };
-    reader.readAsText(file, 'utf-8');
+  const addFilesToQueue = (files) => {
+    const newFiles = Array.from(files).map(f => {
+      const ext = f.name.split('.').pop().toLowerCase();
+      const n = f.name.toLowerCase();
+      let docType = 'Other';
+      if (['csv', 'xlsx', 'xls'].includes(ext)) {
+        if (n.includes('cdr') || n.includes('call')) docType = 'CDR Report';
+        else if (n.includes('bank') || n.includes('statement')) docType = 'Bank Statement';
+        else docType = 'Bank Statement'; 
+      } else if (n.includes('fir')) docType = 'FIR';
+      else if (n.includes('complaint')) docType = 'Complaint';
+      else if (n.includes('statement')) docType = 'Witness Statement';
+      else if (['mp3', 'wav', 'mp4'].includes(ext)) docType = 'Accused Statement';
+      
+      return { name: f.name, size: f.size, file: f, status: 'pending', result: null, docType };
+    });
+    setFileQueue(prev => [...prev, ...newFiles]);
   };
 
-  const handleIngestFile = async () => {
-    if (!uploadedFile?.file) return;
-    setIngesting(true); setIngestResult(null); setUploadProgress(10);
-    try {
-      const fd = new FormData();
-      fd.append('file', uploadedFile.file);
-      fd.append('doc_type', ingestForm.type);
-      const pt = setInterval(() => setUploadProgress(p => Math.min(p + 15, 85)), 800);
-      const res = await fetch(`/api/analysis/cases/${caseId}/upload`, { method: 'POST', headers: { Authorization: headers.Authorization }, body: fd });
-      clearInterval(pt); setUploadProgress(100);
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || 'Upload failed');
-      setIngestResult({ success: true, ...d });
-      setUploadedFile(null); setIngestForm(p => ({ ...p, text: '' }));
-      fetchWiki();
-    } catch (e) { setIngestResult({ success: false, error: e.message }); }
+  const removeFromQueue = (idx) => setFileQueue(prev => prev.filter((_, i) => i !== idx));
+
+  // Upload all pending files one by one
+  const handleBulkUpload = async () => {
+    const pending = fileQueue.map((f, i) => ({ ...f, idx: i })).filter(f => f.status === 'pending');
+    if (!pending.length) return;
+    setIngesting(true); setIngestResult(null);
+    let doneCount = 0;
+    let errCount = 0;
+    for (const item of pending) {
+      setCurrentFileIndex(item.idx);
+      setUploadProgress(10);
+      try {
+        const fd = new FormData();
+        fd.append('file', item.file);
+        fd.append('doc_type', item.docType);
+        const pt = setInterval(() => setUploadProgress(p => Math.min(p + 20, 85)), 600);
+        const res = await fetch(`/api/analysis/cases/${caseId}/upload`, { method: 'POST', headers: { Authorization: headers.Authorization }, body: fd });
+        clearInterval(pt); setUploadProgress(100);
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || 'Upload failed');
+        setFileQueue(prev => prev.map((f, i) => i === item.idx ? { ...f, status: 'done', result: d } : f));
+        doneCount++;
+      } catch (e) {
+        setFileQueue(prev => prev.map((f, i) => i === item.idx ? { ...f, status: 'error', result: { error: e.message } } : f));
+        errCount++;
+      }
+      setUploadProgress(0);
+    }
+    setCurrentFileIndex(null);
     setIngesting(false);
-    setTimeout(() => setUploadProgress(0), 1500);
+    setIngestResult({ success: errCount === 0, doneCount, errCount, bulk: true });
+    fetchWiki();
   };
 
   const handleIngestText = async () => {
@@ -204,7 +232,8 @@ export default function InsightsView({ caseId, headers }) {
   const currentContent = pages.find(p => p.page_slug === activePage)?.content_md || '';
 
   const isFileMode = ingestTab === 'upload';
-  const canIngest = isFileMode ? !!uploadedFile?.file : !!ingestForm.text.trim();
+  const pendingFiles = fileQueue.filter(f => f.status === 'pending');
+  const canIngest = isFileMode ? pendingFiles.length > 0 : !!ingestForm.text.trim();
 
   return (
     <Layout style={{ height: '100%', minHeight: 560, background: 'var(--bg)', borderRadius: '0 0 8px 8px' }}>
@@ -234,7 +263,7 @@ export default function InsightsView({ caseId, headers }) {
           <FA icon={faDiagramProject} style={{ fontSize: 18, color: 'var(--accent)' }} />
           <div>
             <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent-hover)', display: 'block' }}>LLM WIKI — AI Knowledge Graph</span>
-            <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>Gemini 1.5 Flash (extraction) · Groq LLaMA 3.3 70B (queries)</span>
+            <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>Gemini 2.0 Flash (extraction) · Groq LLaMA 3.3 70B (queries)</span>
           </div>
         </div>
 
@@ -298,12 +327,15 @@ export default function InsightsView({ caseId, headers }) {
 
         <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1, overflowY: 'auto' }}>
           {/* Doc type */}
-          <div>
-            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-dim)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Document Type</span>
-            <Select value={ingestForm.type} onChange={v => setIngestForm({ ...ingestForm, type: v })} style={{ width: '100%' }} size="small">
-              {DOC_TYPES.map(t => <Select.Option key={t} value={t}>{t}</Select.Option>)}
-            </Select>
-          </div>
+          {/* Doc type is only needed for Pasta/Text now */}
+          {ingestTab === 'paste' && (
+            <div>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-dim)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Text Document Type</span>
+              <Select value={ingestForm.type} onChange={v => setIngestForm({ ...ingestForm, type: v })} style={{ width: '100%' }} size="small">
+                {DOC_TYPES.map(t => <Select.Option key={t} value={t}>{t}</Select.Option>)}
+              </Select>
+            </div>
+          )}
 
           {/* Upload / Paste toggle */}
           <div style={{ display: 'flex', gap: 0, border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
@@ -318,49 +350,80 @@ export default function InsightsView({ caseId, headers }) {
             ))}
           </div>
 
-          {/* File drop zone */}
+          {/* File drop zone — supports multiple files */}
           {ingestTab === 'upload' && (
             <div>
               <div
                 onDragOver={e => { e.preventDefault(); setDragOver(true); }}
                 onDragLeave={() => setDragOver(false)}
-                onDrop={e => { e.preventDefault(); setDragOver(false); handleFileSelect(e.dataTransfer.files[0]); }}
+                onDrop={e => { e.preventDefault(); setDragOver(false); addFilesToQueue(e.dataTransfer.files); }}
                 onClick={() => fileInputRef.current?.click()}
                 style={{
                   border: `2px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
-                  borderRadius: 8, padding: '20px 10px', textAlign: 'center', cursor: 'pointer',
+                  borderRadius: 8, padding: '16px 10px', textAlign: 'center', cursor: 'pointer',
                   background: dragOver ? 'var(--accent-bg)' : 'transparent', transition: 'all 0.2s',
                 }}
               >
-                <FA icon={faInbox} style={{ fontSize: 28, color: dragOver ? 'var(--accent)' : 'var(--text-dim)', marginBottom: 6, display: 'block', margin: '0 auto 6px' }} />
-                <span style={{ fontSize: 12, color: 'var(--text)' }}>Drop file here or <span style={{ color: 'var(--accent-hover)', textDecoration: 'underline' }}>browse</span></span>
+                <FA icon={faInbox} style={{ fontSize: 26, color: dragOver ? 'var(--accent)' : 'var(--text-dim)', display: 'block', margin: '0 auto 6px' }} />
+                <span style={{ fontSize: 12, color: 'var(--text)' }}>Drop <strong>multiple files</strong> or <span style={{ color: 'var(--accent-hover)', textDecoration: 'underline' }}>browse</span></span>
                 <br />
-                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>.pdf · .docx · .txt · .csv · .xlsx · .mp3 · .wav · .mp4 · .jpg</span>
+                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>.pdf · .docx · .txt · .csv · .xlsx · .mp3 · .mp4 · .jpg</span>
               </div>
-              <input ref={fileInputRef} type="file" accept=".txt,.pdf,.docx,.doc,.csv,.xlsx,.mp3,.wav,.mp4,.png,.jpg,.jpeg" style={{ display: 'none' }}
-                onChange={e => handleFileSelect(e.target.files[0])} />
+              <input ref={fileInputRef} type="file" multiple accept=".txt,.pdf,.docx,.doc,.csv,.xlsx,.mp3,.wav,.mp4,.png,.jpg,.jpeg" style={{ display: 'none' }}
+                onChange={e => { addFilesToQueue(e.target.files); e.target.value = ''; }} />
 
-              {uploadedFile && (
-                <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(59,130,246,0.06)', border: '1px solid var(--accent-border)', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                    {getFileIcon(uploadedFile.name)}
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-h)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{uploadedFile.name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{Math.round(uploadedFile.size / 1024)} KB</div>
+              {/* File Queue */}
+              {fileQueue.length > 0 && (
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {fileQueue.map((f, idx) => (
+                    <div key={idx} style={{
+                      padding: '5px 10px', borderRadius: 7, display: 'flex', alignItems: 'center', gap: 8,
+                      background: f.status === 'done' ? 'rgba(74,222,128,0.06)' : f.status === 'error' ? 'rgba(248,113,113,0.06)' : 'rgba(30,41,59,0.6)',
+                      border: `1px solid ${f.status === 'done' ? 'rgba(74,222,128,0.25)' : f.status === 'error' ? 'rgba(248,113,113,0.25)' : '#1e293b'}`,
+                    }}>
+                      {getFileIcon(f.name)}
+                      <Tooltip title={f.name} mouseEnterDelay={0} placement="top">
+                        <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, fontWeight: 500, color: '#cbd5e1', cursor: 'default' }}>
+                          {f.name}
+                        </div>
+                      </Tooltip>
+                      <span style={{ fontSize: 10, color: '#475569', flexShrink: 0, whiteSpace: 'nowrap' }}>{(f.size / 1024).toFixed(0)} KB</span>
+                      {/* Status & Options */}
+                      {f.status === 'done' && <FA icon={faCheckCircle} style={{ color: '#4ade80', flexShrink: 0 }} />}
+                      {f.status === 'error' && <FA icon={faCircleXmark} style={{ color: '#f87171', flexShrink: 0 }} />}
+                      {currentFileIndex === idx && ingesting && <FA icon={faBrain} spin style={{ color: 'var(--accent)', flexShrink: 0 }} />}
+                      {f.status === 'pending' && currentFileIndex !== idx && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                          <Select
+                            value={f.docType}
+                            onChange={v => setFileQueue(prev => prev.map((item, i) => i === idx ? { ...item, docType: v } : item))}
+                            size="small"
+                            style={{ width: 125 }}
+                            dropdownStyle={{ fontSize: 11 }}
+                          >
+                            {DOC_TYPES.map(t => <Select.Option key={t} value={t} style={{ fontSize: 11, padding: '4px 8px' }}>{t}</Select.Option>)}
+                          </Select>
+                          <button onClick={() => removeFromQueue(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f87171', fontSize: 14, padding: '2px 4px' }}>
+                            <FA icon={faTrash} />
+                          </button>
+                        </div>
+                      )}
                     </div>
+                  ))}
+                  {/* Stats row */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-dim)', paddingTop: 2 }}>
+                    <span>{pendingFiles.length} pending · {fileQueue.filter(f => f.status === 'done').length} done · {fileQueue.filter(f => f.status === 'error').length} failed</span>
+                    <button onClick={() => setFileQueue([])} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', fontSize: 11 }}>Clear all</button>
                   </div>
-                  <button onClick={() => { setUploadedFile(null); setIngestForm(p => ({ ...p, text: '' })); }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f87171', fontSize: 14 }}>
-                    <FA icon={faTrash} />
-                  </button>
                 </div>
               )}
 
-              {uploadProgress > 0 && uploadProgress < 100 && (
+              {/* Per-file upload progress */}
+              {ingesting && uploadProgress > 0 && uploadProgress < 100 && (
                 <div style={{ marginTop: 8 }}>
                   <Progress percent={uploadProgress} size="small" status="active" strokeColor="var(--accent)" />
                   <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                    {uploadProgress < 50 ? 'Parsing document...' : uploadProgress < 80 ? 'AI extracting entities...' : 'Updating wiki...'}
+                    {uploadProgress < 40 ? 'Parsing document...' : uploadProgress < 75 ? 'AI extracting entities...' : 'Updating wiki...'}
                   </span>
                 </div>
               )}
@@ -384,25 +447,25 @@ export default function InsightsView({ caseId, headers }) {
               background: ingestResult.success ? 'rgba(74,222,128,0.06)' : 'rgba(248,113,113,0.06)',
               border: `1px solid ${ingestResult.success ? 'rgba(74,222,128,0.3)' : 'rgba(248,113,113,0.3)'}`,
             }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: ingestResult.success ? '#4ade80' : '#f87171', display: 'block', marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: ingestResult.success ? '#4ade80' : '#f87171', display: 'block', marginBottom: 4 }}>
                 <FA icon={ingestResult.success ? faCheckCircle : faCircleXmark} style={{ marginRight: 5 }} />
-                {ingestResult.success ? 'Ingested Successfully' : 'Ingest Failed'}
+                {ingestResult.bulk
+                  ? `${ingestResult.doneCount} file(s) uploaded${ingestResult.errCount > 0 ? `, ${ingestResult.errCount} failed` : ' successfully'}`
+                  : ingestResult.success ? 'Text Ingested Successfully' : 'Ingest Failed'}
               </span>
-              {ingestResult.success ? (
+              {ingestResult.success && !ingestResult.bulk && (
                 <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
                   {ingestResult.extracted?.classification && <div>Classified as: <strong style={{ color: 'var(--text)' }}>{ingestResult.extracted.classification.doc_type}</strong></div>}
                   <div>Persons extracted: <strong style={{ color: 'var(--text)' }}>{ingestResult.extracted?.newPersons?.length || 0}</strong></div>
                   {(ingestResult.extracted?.contradictions?.length > 0) && <div style={{ color: '#fbbf24', marginTop: 3 }}>⚠ {ingestResult.extracted.contradictions.length} contradictions found</div>}
-                  <span style={{ display: 'inline-block', marginTop: 6, fontSize: 10, background: 'var(--accent-bg)', color: 'var(--accent-hover)', padding: '1px 7px', borderRadius: 4, fontWeight: 600 }}>
-                    <FA icon={faBolt} style={{ marginRight: 4 }} />Gemini + Groq
-                  </span>
                 </div>
-              ) : <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{ingestResult.error || 'Processing failed.'}</span>}
+              )}
+              {!ingestResult.success && <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{ingestResult.error || 'Processing failed.'}</span>}
             </div>
           )}
 
           <button
-            onClick={isFileMode ? handleIngestFile : handleIngestText}
+            onClick={isFileMode ? handleBulkUpload : handleIngestText}
             disabled={!canIngest || ingesting}
             style={{
               width: '100%', padding: '10px 0', borderRadius: 8, border: 'none', cursor: canIngest ? 'pointer' : 'not-allowed',
@@ -413,7 +476,9 @@ export default function InsightsView({ caseId, headers }) {
             }}
           >
             <FA icon={ingesting ? faBrain : faUpload} spin={ingesting} />
-            {ingesting ? 'AI Processing...' : 'Ingest to Wiki'}
+            {ingesting
+              ? `Processing file ${(currentFileIndex ?? 0) + 1} of ${fileQueue.length}...`
+              : isFileMode ? `Upload & Ingest ${pendingFiles.length > 1 ? `All ${pendingFiles.length} Files` : 'File'}` : 'Ingest to Wiki'}
           </button>
 
           <span style={{ fontSize: 11, color: 'var(--text-dim)', textAlign: 'center', display: 'block' }}>

@@ -9,16 +9,16 @@ import path from 'path';
 
 const require = createRequire(import.meta.url);
 
-// ── PDF Parser ─────────────────────────────────────────────────────────────────
+// ── PDF Parser (pdf-parse@1.1.1) ───────────────────────────────────────────────
 export async function parsePDF(buffer) {
   try {
     const pdfParse = require('pdf-parse');
     const data = await pdfParse(buffer);
     return {
-      text: data.text,
-      pages: data.numpages,
-      info: data.info,
-      success: true,
+      text: data.text || '',
+      pages: data.numpages || 0,
+      info: data.info || {},
+      success: !!(data.text && data.text.trim()),
     };
   } catch (e) {
     console.error('PDF parse error:', e.message);

@@ -1,296 +1,238 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Spin, Empty, Tag, Divider, Slider, Tooltip } from 'antd';
+import { Spin, Empty, Slider, Tooltip } from 'antd';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  faShareNodes, faCircleInfo, faXmark, faGear,
+  faCircleInfo, faXmark, faGear,
   faFileLines, faFilePdf, faFileContract, faLink,
-  faCrosshairs, faMaximize, faBullseye,
-  faUser, faUserTie, faUserCheck, faCalendarDays, faFileShield,
-  faStar, faCircle,
+  faCrosshairs, faFileShield,
+  faUser, faUserTie, faUserCheck, faCalendarDays,
+  faStar,
 } from '@fortawesome/free-solid-svg-icons';
 
 const FA = ({ icon, style }) => <FontAwesomeIcon icon={icon} style={{ flexShrink: 0, ...style }} />;
 
-// ── Dark-theme node palette ───────────────────────────────────────────────────
 const NODES = {
-  case:     { color: '#60a5fa', glow: 'rgba(96,165,250,0.35)',  label: 'Case',    icon: faFileShield },
-  accused:  { color: '#f87171', glow: 'rgba(248,113,113,0.35)', label: 'Accused', icon: faUserTie },
-  victim:   { color: '#4ade80', glow: 'rgba(74,222,128,0.35)',  label: 'Victim',  icon: faUser },
-  witness:  { color: '#fbbf24', glow: 'rgba(251,191,36,0.35)',  label: 'Witness', icon: faUserCheck },
-  event:    { color: '#c084fc', glow: 'rgba(192,132,252,0.35)', label: 'Event',   icon: faCalendarDays },
-  evidence: { color: '#38bdf8', glow: 'rgba(56,189,248,0.35)',  label: 'Evidence',icon: faFileLines },
+  case:     { color: '#60a5fa', glow: 'rgba(96,165,250,0.4)',  label: 'Case',    icon: faFileShield },
+  accused:  { color: '#f87171', glow: 'rgba(248,113,113,0.4)', label: 'Accused', icon: faUserTie },
+  victim:   { color: '#4ade80', glow: 'rgba(74,222,128,0.4)',  label: 'Victim',  icon: faUser },
+  witness:  { color: '#fbbf24', glow: 'rgba(251,191,36,0.4)',  label: 'Witness', icon: faUserCheck },
+  event:    { color: '#c084fc', glow: 'rgba(192,132,252,0.4)', label: 'Event',   icon: faCalendarDays },
+  evidence: { color: '#38bdf8', glow: 'rgba(56,189,248,0.4)',  label: 'Evidence',icon: faFileLines },
 };
 
 const DOC_REFS = {
-  case:     { label: 'FIR / Complaint Copy',     icon: faFilePdf },
+  case:     { label: 'FIR / Complaint Copy',          icon: faFilePdf },
   accused:  { label: 'Accused Statement / Arrest Memo', icon: faFileContract },
-  victim:   { label: 'Victim Statement',         icon: faFileContract },
-  witness:  { label: 'Witness Statement',        icon: faFileContract },
-  event:    { label: 'Case Diary / Evidence Log',icon: faFileLines },
-  evidence: { label: 'Seizure Memo / Lab Report',icon: faFilePdf },
+  victim:   { label: 'Victim Statement',              icon: faFileContract },
+  witness:  { label: 'Witness Statement',             icon: faFileContract },
+  event:    { label: 'Case Diary / Evidence Log',     icon: faFileLines },
+  evidence: { label: 'Seizure Memo / Lab Report',     icon: faFilePdf },
 };
 
-// ── Slider control row ────────────────────────────────────────────────────────
 function SliderRow({ label, value, min, max, step, onChange }) {
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-        <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500 }}>{label}</span>
-        <span style={{ fontSize: 11, color: 'var(--accent-hover)', fontWeight: 700, fontFamily: 'var(--mono)' }}>{value}</span>
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+        <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>{label}</span>
+        <span style={{ fontSize: 11, color: '#60a5fa', fontWeight: 700, fontFamily: 'monospace' }}>{value}</span>
       </div>
       <Slider min={min} max={max} step={step} value={value} onChange={onChange}
         tooltip={{ open: false }}
-        styles={{ track: { backgroundColor: 'var(--accent)' }, rail: { backgroundColor: 'var(--border)' }, handle: { borderColor: 'var(--accent)', backgroundColor: 'var(--accent)' } }}
+        styles={{ track: { backgroundColor: '#3b82f6' }, rail: { backgroundColor: '#1f2d3d' }, handle: { borderColor: '#3b82f6', backgroundColor: '#3b82f6' } }}
       />
     </div>
   );
 }
 
-export default function KnowledgeGraphView({ caseId, headers, caseData }) {
-  const [graphData, setGraphData]   = useState(null);
-  const [selected, setSelected]     = useState(null);
-  const [loading, setLoading]       = useState(true);
-  const [ForceGraph, setForceGraph] = useState(null);
-  const [showControls, setShowControls] = useState(true);
-  const [containerSize, setContainerSize] = useState({ w: 800, h: 600 });
+const GRAPH_BG = '#0b0f18';
 
-  // Slider state
+export default function KnowledgeGraphView({ caseId, caseData }) {
+  const [graphData, setGraphData]       = useState(null);
+  const [selected, setSelected]         = useState(null);
+  const [loading, setLoading]           = useState(true);
+  const [ForceGraph, setForceGraph]     = useState(null);
+  const [showControls, setShowControls] = useState(false); // collapsed by default
+  const [size, setSize]                 = useState({ w: 0, h: 0 });
+
   const [nodeSize,      setNodeSize]      = useState(6);
-  const [linkDistance,  setLinkDistance]  = useState(100);
-  const [linkThickness, setLinkThickness] = useState(1.5);
-  const [centerForce,   setCenterForce]   = useState(0.35);
-  const [repelForce,    setRepelForce]    = useState(160);
+  const [linkDistance,  setLinkDistance]  = useState(180);
+  const [linkThickness, setLinkThickness] = useState(1.2);
+  const [centerForce,   setCenterForce]   = useState(0.05);
+  const [repelForce,    setRepelForce]    = useState(350);
 
   const graphRef    = useRef(null);
-  const containerRef = useRef(null);
-  const graphContainerRef = useRef(null);
+  const wrapperRef  = useRef(null);
   const hasCentered = useRef(false);
 
-  // Lazy-load ForceGraph2d
+  // Load ForceGraph2D lazily
   useEffect(() => {
     import('react-force-graph-2d').then(m => setForceGraph(() => m.default));
   }, []);
 
-  // Track container dimensions for responsive sizing
+  // Measure full wrapper size — single source of truth for canvas dimensions
   useEffect(() => {
-    if (!graphContainerRef.current) return;
-    const ro = new ResizeObserver(entries => {
-      for (const e of entries) {
-        const { width, height } = e.contentRect;
-        // Avoid setting size to 0 if tab is hidden
-        if (width > 0 && height > 0) {
-          setContainerSize({ w: Math.floor(width), h: Math.floor(height) });
-        }
+    if (!wrapperRef.current) return;
+    const measure = () => {
+      const el = wrapperRef.current;
+      if (!el) return;
+      const { offsetWidth: w, offsetHeight: h } = el;
+      console.log('[KnowledgeGraphView] Container dimensions:', w, h);
+      if (w > 0 && h > 0) {
+        setSize({ w, h });
+      } else {
+        // Fallback: use default dimensions if measurement returns 0
+        setTimeout(() => setSize({ w: 800, h: 600 }), 100);
       }
-    });
-    ro.observe(graphContainerRef.current);
+    };
+    measure();
+    // Try measuring after a short delay as backup
+    setTimeout(measure, 200);
+    const ro = new ResizeObserver(measure);
+    ro.observe(wrapperRef.current);
     return () => ro.disconnect();
   }, []);
 
   // Fetch graph data
   useEffect(() => {
+    if (!caseId) {
+      setGraphData({ nodes: [], links: [] });
+      setLoading(false);
+      return;
+    }
     setLoading(true); setSelected(null); hasCentered.current = false;
-    fetch(`/api/analysis/cases/${caseId}/graph`, { headers })
-      .then(r => r.json())
-      .then(d => { setGraphData(d); setLoading(false); })
-      .catch(() => setLoading(false));
+    
+    // Get fresh headers to avoid stale closure
+    const currentToken = localStorage.getItem('token');
+    const authHeaders = { Authorization: `Bearer ${currentToken}` };
+    console.log('[KnowledgeGraphView] Fetching graph. caseId:', caseId, 'hasToken:', !!currentToken);
+    
+    fetch(`/api/analysis/cases/${caseId}/graph`, { headers: authHeaders })
+      .then(r => {
+        if (!r.ok) {
+          console.error('[KnowledgeGraphView] Graph API error:', r.status, r.statusText);
+          return { nodes: [], links: [] };
+        }
+        return r.json();
+      })
+      .then(d => {
+        console.log('[KnowledgeGraphView] Graph data loaded:', d?.nodes?.length || 0, 'nodes,', d?.links?.length || 0, 'links');
+        setGraphData(d || { nodes: [], links: [] });
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('[KnowledgeGraphView] Graph fetch error:', err);
+        setGraphData({ nodes: [], links: [] });
+        setLoading(false);
+      });
   }, [caseId]);
 
-  // Apply slider forces imperatively
+  // Apply forces when sliders change
   useEffect(() => {
     if (!graphRef.current) return;
-    const fg = graphRef.current;
-    fg.d3Force('charge')?.strength(-repelForce);
-    fg.d3Force('link')?.distance(linkDistance);
-    fg.d3Force('center')?.strength(centerForce);
-    fg.d3ReheatSimulation();
+    graphRef.current.d3Force('charge')?.strength(-repelForce);
+    graphRef.current.d3Force('link')?.distance(linkDistance);
+    graphRef.current.d3Force('center')?.strength(centerForce);
+    graphRef.current.d3ReheatSimulation();
   }, [repelForce, linkDistance, centerForce]);
 
-  // Auto-center after simulation stabilises, but ONLY ONCE
+  // Auto-center once simulation stabilises
   const handleEngineStop = useCallback(() => {
     if (!hasCentered.current && graphRef.current) {
-      graphRef.current.zoomToFit(500, 80);
-      hasCentered.current = true;
+      setTimeout(() => {
+        graphRef.current?.zoomToFit(800, 50);
+        hasCentered.current = true;
+      }, 100);
     }
   }, []);
 
   const handleNodeClick = useCallback((node) => {
     setSelected(node);
-    // Smooth pan to clicked node
-    graphRef.current?.centerAt(node.x, node.y, 600);
-    graphRef.current?.zoom(2.5, 600);
+    graphRef.current?.centerAt(node.x, node.y, 800);
+    graphRef.current?.zoom(2.5, 800);
   }, []);
 
-  // ── Canvas node renderer (label below node) ───────────────────────────────
+  // Canvas node painter
   const nodeCanvasObject = useCallback((node, ctx, globalScale) => {
     const cfg = NODES[node.type] || NODES.event;
-    const r   = ((node.val || 5) * (nodeSize / 5));
+    const r   = (node.val || 5) * (nodeSize / 5);
 
-    // Glow ring when selected
+    // Selection glow ring
     if (selected?.id === node.id) {
       ctx.beginPath();
-      ctx.arc(node.x, node.y, r + 5 / globalScale, 0, 2 * Math.PI);
+      ctx.arc(node.x, node.y, r + 6 / globalScale, 0, 2 * Math.PI);
       ctx.fillStyle = cfg.glow;
       ctx.fill();
     }
 
-    // Node circle
+    // Node body
     ctx.beginPath();
     ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
     ctx.fillStyle = cfg.color;
     ctx.fill();
 
-    // Subtle inner highlight
+    // Specular highlight
     ctx.beginPath();
-    ctx.arc(node.x, node.y - r * 0.25, r * 0.4, 0, 2 * Math.PI);
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.arc(node.x, node.y - r * 0.28, r * 0.38, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
     ctx.fill();
 
-    // Label
-    const label = node.label?.length > 20 ? node.label.slice(0, 20) + '…' : (node.label || '');
-    const fontSize = Math.max(10 / globalScale, 2.5);
-    ctx.font = `600 ${fontSize}px Inter, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    // outline for readability on dark bg
-    ctx.lineWidth = 3 / globalScale;
-    ctx.strokeStyle = '#161923';
-    ctx.strokeText(label, node.x, node.y + r + 3 / globalScale);
-    ctx.fillStyle = '#f0f6fc';
-    ctx.fillText(label, node.x, node.y + r + 3 / globalScale);
+    // Label (only when zoomed enough)
+    if (globalScale > 0.4) {
+      const label = node.label?.length > 18 ? node.label.slice(0, 18) + '…' : (node.label || '');
+      const fontSize = Math.max(12 / globalScale, 2.5);
+      ctx.font = `600 ${fontSize}px Inter,sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.lineWidth = 3.5 / globalScale;
+      ctx.strokeStyle = GRAPH_BG;
+      ctx.strokeText(label, node.x, node.y + r + 2 / globalScale);
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillText(label, node.x, node.y + r + 2 / globalScale);
+    }
   }, [nodeSize, selected]);
 
-  // ── Link color: accent for case-linked, dim for others ───────────────────
   const getLinkColor = useCallback((link) => {
     const src = typeof link.source === 'object' ? link.source.type : '';
-    if (src === 'case') return 'rgba(96,165,250,0.45)';
-    return 'rgba(100,116,139,0.3)';
+    return src === 'case' ? 'rgba(96,165,250,0.5)' : 'rgba(100,116,139,0.25)';
   }, []);
 
-  // ── Particle (directional arrow) only on meaningful links ───────────────
   const getArrowLength = useCallback((link) => {
     const src = typeof link.source === 'object' ? link.source.type : '';
-    return (link.directed || src === 'case') ? 6 : 0;
+    return (link.directed || src === 'case') ? 5 : 0;
   }, []);
 
+  // ── Render ────────────────────────────────────────────────────────────────────
   if (loading || !ForceGraph) return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 520 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 520, background: GRAPH_BG }}>
       <Spin size="large" />
-      <div style={{ marginTop: 16, color: 'var(--text-dim)', fontSize: 13 }}>Rendering knowledge graph…</div>
+      <div style={{ marginTop: 16, color: '#4a6272', fontSize: 13 }}>Building knowledge graph…</div>
     </div>
   );
 
   if (!graphData?.nodes?.length) return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 520 }}>
-      <Empty description={<span style={{ color: 'var(--text-dim)' }}>No graph data. Add persons and events to see relationships.</span>} />
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 520, background: GRAPH_BG }}>
+      <Empty description={<span style={{ color: '#4a6272' }}>No graph data. Upload documents to generate relationships.</span>} />
     </div>
   );
 
-  const GRAPH_BG = '#0f1319';
-
-  // Sidebar controls take width, but graphContainerRef exacts the canvas container size
-  const canvasW = containerSize.w || 400;
+// Use measured size, fallback to window dimensions if needed
+  const graphWidth = size.w > 0 ? size.w : window.innerWidth - 48;
+  const graphHeight = size.h > 0 ? size.h : window.innerHeight - 200;
 
   return (
-    <div ref={containerRef} style={{ display: 'flex', width: '100%', height: '100%', minHeight: 580, overflow: 'hidden', background: GRAPH_BG }}>
-
-      {/* ── Controls sidebar ──────────────────────────────────────────────── */}
-      {showControls && (
-        <div style={{
-          width: 210, flexShrink: 0, borderRight: '1px solid #1f2d3d',
-          background: '#0d1520', padding: '16px 14px', overflowY: 'auto',
-          display: 'flex', flexDirection: 'column',
-        }}>
-          {/* Legend */}
-          <div style={{ marginBottom: 18 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#4a6272', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
-              <FA icon={faCircleInfo} style={{ marginRight: 5 }} />Legend
-            </div>
-            {Object.entries(NODES).map(([type, cfg]) => (
-              <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
-                <div style={{ width: 10, height: 10, borderRadius: '50%', background: cfg.color, flexShrink: 0, boxShadow: `0 0 5px ${cfg.glow}` }} />
-                <FA icon={cfg.icon} style={{ color: cfg.color, fontSize: 11 }} />
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>{cfg.label}</span>
-              </div>
-            ))}
-            <div style={{ marginTop: 8, fontSize: 11, color: '#4a6272' }}>
-              <FA icon={faCircleInfo} style={{ marginRight: 4 }} />Click node for details
-            </div>
-          </div>
-
-          <div style={{ height: 1, background: '#1f2d3d', marginBottom: 18 }} />
-
-          {/* Display sliders */}
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#4a6272', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>Display</div>
-          <SliderRow label="Node size"      value={nodeSize}      min={2}   max={14}  step={1}    onChange={setNodeSize} />
-          <SliderRow label="Link thickness" value={linkThickness} min={0.5} max={5}   step={0.5}  onChange={setLinkThickness} />
-          <SliderRow label="Link distance"  value={linkDistance}  min={30}  max={300} step={10}   onChange={setLinkDistance} />
-
-          <div style={{ height: 1, background: '#1f2d3d', marginBottom: 18 }} />
-
-          {/* Force sliders */}
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#4a6272', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>Forces</div>
-          <SliderRow label="Center force"   value={centerForce}   min={0}   max={1}   step={0.05} onChange={setCenterForce} />
-          <SliderRow label="Repel force"    value={repelForce}    min={30}  max={500} step={10}   onChange={setRepelForce} />
-
-          {/* Re-center button */}
-          <button
-            onClick={() => graphRef.current?.zoomToFit(400, 60)}
-            style={{
-              marginTop: 8, width: '100%', padding: '9px 0', borderRadius: 7,
-              background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.35)',
-              color: '#60a5fa', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
-            }}
-          >
-            <FA icon={faCrosshairs} />Re-center Graph
-          </button>
-        </div>
-      )}
-
-      {/* ── Graph canvas ──────────────────────────────────────────────────── */}
-      <div ref={graphContainerRef} style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: 200 }}>
-
-        {/* Toggle controls button */}
-        <Tooltip title={showControls ? 'Hide controls' : 'Show controls'}>
-          <button
-            onClick={() => setShowControls(p => !p)}
-            style={{
-              position: 'absolute', top: 10, left: 10, zIndex: 10,
-              width: 30, height: 30, borderRadius: 6, border: '1px solid #1f2d3d',
-              background: showControls ? 'rgba(59,130,246,0.2)' : '#0d1520',
-              color: showControls ? '#60a5fa' : '#4a6272',
-              cursor: 'pointer', fontSize: 13,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
-          >
-            <FA icon={faGear} />
-          </button>
-        </Tooltip>
-
-        {/* Case info chip */}
-        {caseData && (
-          <div style={{
-            position: 'absolute', top: 10, left: 50, zIndex: 10,
-            background: 'rgba(13,21,32,0.92)', border: '1px solid #1f2d3d',
-            borderRadius: 6, padding: '4px 10px',
-            fontSize: 11, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 6,
-          }}>
-            <FA icon={faFileShield} style={{ color: '#60a5fa' }} />
-            <strong style={{ color: '#f0f6fc' }}>{caseData.title?.slice(0, 40)}</strong>
-            <span>·</span>
-            <span style={{ color: '#38bdf8' }}>{caseData.case_type?.toUpperCase()}</span>
-          </div>
-        )}
-
-        <ForceGraph
-          ref={graphRef}
-          width={canvasW}
-          height={containerSize.h || 580}
+    <div
+      ref={wrapperRef}
+      style={{ width: '100%', height: '100%', overflow: 'hidden', background: GRAPH_BG }}
+    >
+      {/* ── ForceGraph — fills entire wrapper ──────────────────────────── */}
+      <ForceGraph
+        ref={graphRef}
+        width={graphWidth}
+        height={graphHeight}
+        graphData={graphData}
           graphData={graphData}
           backgroundColor={GRAPH_BG}
-          nodeLabel={node => `${NODES[node.type]?.label || node.type}: ${node.label}`}
-          nodeColor={node => NODES[node.type]?.color || '#94a3b8'}
+          nodeLabel={() => ''}  // we paint custom tooltips via canvas
           nodeVal={node => (node.val || 5) * (nodeSize / 5)}
           nodeCanvasObject={nodeCanvasObject}
           nodeCanvasObjectMode={() => 'replace'}
@@ -300,117 +242,208 @@ export default function KnowledgeGraphView({ caseId, headers, caseData }) {
           linkDirectionalArrowRelPos={1}
           linkDirectionalArrowColor={link => {
             const src = typeof link.source === 'object' ? link.source.type : '';
-            return src === 'case' ? '#60a5fa' : '#4a6272';
+            return src === 'case' ? '#60a5fa' : '#475569';
           }}
           linkLabel={link => link.label || ''}
-          d3AlphaDecay={0.02}
-          d3VelocityDecay={0.3}
-          cooldownTicks={150}
           onEngineStop={handleEngineStop}
           onNodeClick={handleNodeClick}
           onBackgroundClick={() => setSelected(null)}
         />
+
+      {/* ── Floating toolbar (top-left) ───────────────────────────────────── */}
+      <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
+
+        {/* Toggle controls button */}
+        <Tooltip title={showControls ? 'Hide controls' : 'Graph controls'} placement="right">
+          <button
+            onClick={() => setShowControls(p => !p)}
+            style={{
+              width: 34, height: 34, borderRadius: 8,
+              border: `1px solid ${showControls ? '#3b82f6' : '#1f2d3d'}`,
+              background: showControls ? 'rgba(59,130,246,0.25)' : 'rgba(13,21,32,0.85)',
+              color: showControls ? '#60a5fa' : '#64748b',
+              cursor: 'pointer', fontSize: 14,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              backdropFilter: 'blur(8px)',
+              transition: 'all 0.15s',
+            }}
+          >
+            <FA icon={faGear} />
+          </button>
+        </Tooltip>
+
+        {/* Re-center button */}
+        <Tooltip title="Fit all nodes to view" placement="right">
+          <button
+            onClick={() => graphRef.current?.zoomToFit(400, 60)}
+            style={{
+              width: 34, height: 34, borderRadius: 8,
+              border: '1px solid #1f2d3d',
+              background: 'rgba(13,21,32,0.85)',
+              color: '#64748b', cursor: 'pointer', fontSize: 13,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              backdropFilter: 'blur(8px)',
+              transition: 'all 0.15s',
+            }}
+          >
+            <FA icon={faCrosshairs} />
+          </button>
+        </Tooltip>
       </div>
 
-      {/* ── Node detail panel ─────────────────────────────────────────────── */}
+      {/* ── Floating controls + legend panel ─────────────────────────────── */}
+      {showControls && (
+        <div style={{
+          position: 'absolute', top: 12, left: 54, zIndex: 19,
+          width: 200, maxHeight: 'calc(100% - 24px)',
+          borderRadius: 10, border: '1px solid #1f2d3d',
+          background: 'rgba(11,15,24,0.92)', backdropFilter: 'blur(14px)',
+          padding: '12px 14px', overflowY: 'auto',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
+          animation: 'kgFadeIn 0.18s ease',
+        }}>
+          {/* Legend */}
+          <div style={{ fontSize: 9, fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 8 }}>Legend</div>
+          {Object.entries(NODES).map(([type, cfg]) => (
+            <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.color, flexShrink: 0, boxShadow: `0 0 6px ${cfg.glow}` }} />
+              <FA icon={cfg.icon} style={{ color: cfg.color, fontSize: 10 }} />
+              <span style={{ fontSize: 11, color: '#94a3b8' }}>{cfg.label}</span>
+            </div>
+          ))}
+
+          <div style={{ height: 1, background: '#1e293b', margin: '10px 0' }} />
+
+          {/* Display */}
+          <div style={{ fontSize: 9, fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 8 }}>Display</div>
+          <SliderRow label="Node size"      value={nodeSize}      min={2}   max={14}  step={1}   onChange={setNodeSize} />
+          <SliderRow label="Link thickness" value={linkThickness} min={0.5} max={5}   step={0.5} onChange={setLinkThickness} />
+          <SliderRow label="Link distance"  value={linkDistance}  min={30}  max={300} step={10}  onChange={setLinkDistance} />
+
+          <div style={{ height: 1, background: '#1e293b', margin: '10px 0' }} />
+
+          {/* Forces */}
+          <div style={{ fontSize: 9, fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 8 }}>Forces</div>
+          <SliderRow label="Center force" value={centerForce} min={0}  max={1}   step={0.05} onChange={setCenterForce} />
+          <SliderRow label="Repel force"  value={repelForce}  min={30} max={600} step={10}   onChange={setRepelForce} />
+        </div>
+      )}
+
+      {/* ── Case chip (top-right of canvas) ──────────────────────────────── */}
+      {caseData && (
+        <div style={{
+          position: 'absolute', top: 12, right: 12, zIndex: 18,
+          background: 'rgba(11,15,24,0.85)', border: '1px solid #1f2d3d',
+          borderRadius: 8, padding: '5px 12px',
+          fontSize: 11, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 6,
+          backdropFilter: 'blur(8px)',
+        }}>
+          <FA icon={faFileShield} style={{ color: '#60a5fa', fontSize: 12 }} />
+          <strong style={{ color: '#f1f5f9' }}>{caseData.title?.slice(0, 35)}</strong>
+          <span style={{ color: '#38bdf8', fontWeight: 700 }}>{caseData.case_type?.toUpperCase()}</span>
+        </div>
+      )}
+
+      {/* ── Floating node detail panel (bottom-right) ─────────────────────── */}
       {selected && (
         <div style={{
-          width: 290, flexShrink: 0,
-          borderLeft: '1px solid #1f2d3d',
-          background: '#0d1520',
+          position: 'absolute', bottom: 14, right: 14, zIndex: 20,
+          width: 280, maxHeight: 'calc(100% - 80px)',
+          borderRadius: 12,
+          border: `1px solid ${NODES[selected.type]?.color || '#3b82f6'}44`,
+          background: 'rgba(11,15,24,0.96)', backdropFilter: 'blur(14px)',
+          boxShadow: `0 12px 40px rgba(0,0,0,0.8), 0 0 0 1px ${NODES[selected.type]?.color || '#3b82f6'}22`,
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          animation: 'kgSlideUp 0.2s ease',
         }}>
-          {/* Panel header */}
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid #1f2d3d', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0a1120', flexShrink: 0 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              <FA icon={faCircleInfo} style={{ marginRight: 6, color: NODES[selected.type]?.color || '#60a5fa' }} />Node Details
-            </span>
-            <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4a6272', fontSize: 14, padding: 4, borderRadius: 4 }}>
-              <FA icon={faXmark} />
-            </button>
-          </div>
-
-          <div style={{ overflowY: 'auto', flex: 1, padding: '16px' }}>
-            {/* Type badge */}
-            <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* Header */}
+          <div style={{
+            padding: '10px 14px', flexShrink: 0,
+            borderBottom: `1px solid ${NODES[selected.type]?.color || '#3b82f6'}33`,
+            background: `${NODES[selected.type]?.color || '#3b82f6'}0d`,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <span style={{
-                padding: '3px 10px', borderRadius: 5, fontSize: 11, fontWeight: 700,
-                background: `${NODES[selected.type]?.color}22`,
-                border: `1px solid ${NODES[selected.type]?.color}55`,
+                padding: '2px 8px', borderRadius: 5, fontSize: 10, fontWeight: 800,
+                background: `${NODES[selected.type]?.color}20`,
+                border: `1px solid ${NODES[selected.type]?.color}50`,
                 color: NODES[selected.type]?.color || '#60a5fa',
-                display: 'flex', alignItems: 'center', gap: 6,
+                display: 'flex', alignItems: 'center', gap: 5,
+                textTransform: 'uppercase', letterSpacing: '0.06em',
               }}>
-                <FA icon={NODES[selected.type]?.icon || faStar} style={{ fontSize: 11 }} />
+                <FA icon={NODES[selected.type]?.icon || faStar} style={{ fontSize: 10 }} />
                 {NODES[selected.type]?.label || selected.type}
               </span>
             </div>
+            <button
+              onClick={() => setSelected(null)}
+              style={{
+                background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.3)',
+                borderRadius: 6, cursor: 'pointer', color: '#f87171',
+                fontSize: 12, padding: '3px 8px',
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              <FA icon={faXmark} /> Close
+            </button>
+          </div>
 
-            {/* Name */}
-            <h4 style={{ margin: '0 0 14px', color: '#f0f6fc', fontSize: 15, fontWeight: 700, lineHeight: 1.4 }}>
+          {/* Body */}
+          <div style={{ overflowY: 'auto', flex: 1, padding: '14px' }}>
+            <h4 style={{ margin: '0 0 12px', color: '#f1f5f9', fontSize: 14, fontWeight: 700, lineHeight: 1.4 }}>
               {selected.label}
             </h4>
 
-            {/* Description / content */}
             {selected.content && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#4a6272', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Description</div>
-                <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.65, background: '#111827', border: '1px solid #1f2d3d', borderRadius: 6, padding: '10px 12px' }}>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 9, fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 5 }}>Description</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.7, background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, padding: '8px 10px' }}>
                   {selected.content}
                 </div>
               </div>
             )}
 
-            {/* Details grid */}
             {selected.details && Object.keys(selected.details).filter(k => selected.details[k]).length > 0 && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#4a6272', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>Details</div>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 9, fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 7 }}>Details</div>
                 {Object.entries(selected.details).map(([k, v]) => v ? (
-                  <div key={k} style={{ display: 'flex', gap: 8, marginBottom: 7, fontSize: 12 }}>
-                    <span style={{ color: '#4a6272', minWidth: 80, flexShrink: 0, textTransform: 'capitalize' }}>{k}:</span>
-                    <span style={{ color: '#c9d1d9', fontWeight: 600 }}>{v}</span>
+                  <div key={k} style={{ display: 'flex', gap: 8, marginBottom: 5, fontSize: 11 }}>
+                    <span style={{ color: '#475569', minWidth: 70, flexShrink: 0, textTransform: 'capitalize' }}>{k}:</span>
+                    <span style={{ color: '#cbd5e1', fontWeight: 600 }}>{v}</span>
                   </div>
                 ) : null)}
               </div>
             )}
 
-            {/* Source references */}
             {selected.sourceRefs?.length > 0 && (
               <>
-                <div style={{ height: 1, background: '#1f2d3d', margin: '14px 0' }} />
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#4a6272', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
-                  Source References
-                </div>
+                <div style={{ height: 1, background: '#1e293b', margin: '10px 0' }} />
+                <div style={{ fontSize: 9, fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 7 }}>Source References</div>
                 {selected.sourceRefs.map((ref, i) => (
-                  <div key={i} style={{
-                    display: 'flex', gap: 8, padding: '8px 10px', marginBottom: 6,
-                    background: '#111827', border: '1px solid #1f2d3d', borderRadius: 6,
-                  }}>
-                    <FA icon={faLink} style={{ color: '#60a5fa', marginTop: 2, flexShrink: 0 }} />
+                  <div key={i} style={{ display: 'flex', gap: 8, padding: '7px 9px', marginBottom: 5, background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6 }}>
+                    <FA icon={faLink} style={{ color: '#3b82f6', marginTop: 2, flexShrink: 0, fontSize: 10 }} />
                     <div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: '#60a5fa' }}>{ref.docType}</div>
-                      {ref.date && <div style={{ fontSize: 11, color: '#4a6272', marginTop: 2 }}>{ref.date}</div>}
-                      {ref.detail && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{ref.detail}</div>}
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#60a5fa' }}>{ref.docType}</div>
+                      {ref.date && <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>{ref.date}</div>}
                     </div>
                   </div>
                 ))}
               </>
             )}
 
-            {/* Verify via doc type */}
             {DOC_REFS[selected.type] && (
               <>
-                <div style={{ height: 1, background: '#1f2d3d', margin: '14px 0' }} />
+                <div style={{ height: 1, background: '#1e293b', margin: '10px 0' }} />
                 <div style={{
-                  padding: '10px 12px', borderRadius: 6,
-                  background: `${NODES[selected.type]?.color}0f`,
-                  border: `1px solid ${NODES[selected.type]?.color}30`,
+                  padding: '8px 10px', borderRadius: 6,
+                  background: `${NODES[selected.type]?.color}08`,
                   borderLeft: `3px solid ${NODES[selected.type]?.color}`,
+                  border: `1px solid ${NODES[selected.type]?.color}25`,
                 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: '#4a6272', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>
-                    <FA icon={faFileShield} style={{ marginRight: 5 }} />Verify via
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#94a3b8' }}>
-                    <FA icon={DOC_REFS[selected.type].icon} style={{ color: NODES[selected.type]?.color }} />
+                  <div style={{ fontSize: 9, fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 4 }}>Verify via</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#94a3b8' }}>
+                    <FA icon={DOC_REFS[selected.type].icon} style={{ color: NODES[selected.type]?.color, fontSize: 11 }} />
                     {DOC_REFS[selected.type].label}
                   </div>
                 </div>
@@ -419,6 +452,17 @@ export default function KnowledgeGraphView({ caseId, headers, caseData }) {
           </div>
         </div>
       )}
+
+      <style>{`
+        @keyframes kgSlideUp {
+          from { opacity: 0; transform: translateY(14px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes kgFadeIn {
+          from { opacity: 0; transform: translateX(-8px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+      `}</style>
     </div>
   );
 }

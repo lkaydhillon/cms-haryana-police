@@ -18,8 +18,11 @@ let groqClient = null;
 try {
   if (process.env.GEMINI_API_KEY) {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    geminiModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    console.log('✅ Gemini 1.5 Flash initialized (document analysis)');
+    geminiModel = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      generationConfig: { maxOutputTokens: 8192 },
+    });
+    console.log('✅ Gemini 2.0 Flash initialized (document analysis)');
   }
 } catch (e) {
   console.warn('⚠️  Gemini init failed, using rule-based fallback:', e.message);
@@ -39,6 +42,35 @@ async function geminiGenerate(prompt) {
   if (!geminiModel) throw new Error('Gemini not initialized');
   const result = await geminiModel.generateContent(prompt);
   return result.response.text();
+}
+
+// ── Gemini Vision OCR ─────────────────────────────────────────────────────────
+// Used when pdf-parse produces garbled text (legacy Indian font encoding issue).
+// Sends the raw PDF binary to Gemini 2.0 Flash which reads it as a visual document.
+export async function extractTextWithGemini(buffer, mimeType = 'application/pdf') {
+  if (!geminiModel) throw new Error('Gemini not initialized');
+  try {
+    const base64 = buffer.toString('base64');
+    const result = await geminiModel.generateContent([
+      {
+        inlineData: { mimeType, data: base64 },
+      },
+      `You are an expert OCR engine for Indian police documents. 
+Extract ALL text from this document with maximum accuracy.
+- Preserve Devanagari (Hindi) script exactly as printed
+- Preserve Urdu/Arabic words written in Hindi script exactly
+- Do NOT translate — extract verbatim text only
+- Preserve line breaks, numbering, section headings
+- If a word is unclear, write your best estimate in [brackets]
+Return ONLY the extracted text, zero commentary.`,
+    ]);
+    const text = result.response.text();
+    console.log(`✅ Gemini Vision OCR extracted ${text.length} chars`);
+    return text;
+  } catch (e) {
+    console.error('Gemini Vision OCR failed:', e.message);
+    return null;
+  }
 }
 
 // ── Groq helper ───────────────────────────────────────────────────────────────
@@ -148,8 +180,8 @@ Also give a brief summary (1 sentence) of what the document contains.
 
 Respond ONLY as JSON: {"doc_type": "...", "language": "...", "summary": "...", "confidence": 0.0-1.0}
 
-Document (first 800 chars):
-${text.substring(0, 800)}`;
+Document (first 2000 chars):
+${text.substring(0, 2000)}`;
 
   try {
     const raw = await geminiGenerate(prompt);
@@ -172,15 +204,20 @@ ${text.substring(0, 800)}`;
 
 // ── Export: Extract Entities (Gemini for long docs) ───────────────────────────
 export async function extractEntitiesAI(text, docType, caseId) {
-  const truncatedText = text.substring(0, 6000); // Gemini's long context, but keep reasonable
+  const truncatedText = text.substring(0, 500000); // Gemini 1.5 Flash supports up to 1M tokens, allowing full large file analysis
 
   const prompt = `You are an expert forensic analyst for the Haryana Police. Extract all investigative entities from this ${docType} document.
 
-Extract and return ONLY valid JSON with this exact structure:
+CRITICAL INSTRUCTIONS:
+1. You MUST return ONLY valid JSON. Absolutely no markdown blocks, no conversational text, no explanations.
+2. You MUST use this EXACT structure. Do not skip any arrays, even if empty, return [].
+3. For "events", if absolute date is missing, infer it from the document context (use ISO 8601 format like "2024-05-10T14:30:00Z"). Do not use generic strings like "yesterday".
+4. Every event MUST have a clear description.
+
 {
   "persons": [{"name": "...", "role": "accused|victim|witness|officer|unknown", "phone": "...", "address": "...", "age": null, "confidence": 0.8, "context": "brief context"}],
   "phones": [{"number": "...", "owner": "...", "role": "accused|victim|unknown", "confidence": 0.9}],
-  "events": [{"date": "...", "description": "...", "location": "...", "category": "arrest|statement|evidence|registration|raid|other", "confidence": 0.8}],
+  "events": [{"date": "2024-01-01T10:00:00Z", "description": "...", "location": "...", "category": "arrest|statement|evidence|registration|raid|other", "confidence": 0.8}],
   "locations": [{"name": "...", "type": "crime_scene|residence|workplace|police_station|court|other"}],
   "bank_accounts": [{"account_no": "...", "bank": "...", "holder": "...", "amount": null}],
   "ip_addresses": [{"ip": "...", "context": "..."}],
@@ -190,15 +227,18 @@ Extract and return ONLY valid JSON with this exact structure:
   "doc_summary": "one sentence summary"
 }
 
-Support Hindi and English text. For Hindi names/terms, transliterate to English.
+Crucially support ALL languages including English, Hindi, Urdu, and Arabic. Accurately interpret Urdu or Arabic terms and accents even if they are written in Hindi script. Transliterate and translate all terms into contextually accurate English for the final JSON.
 Document:
 ${truncatedText}`;
 
   try {
     const raw = await geminiGenerate(prompt);
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
+    // Find the first { and the last }
+    const startIndex = raw.indexOf('{');
+    const endIndex = raw.lastIndexOf('}');
+    if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+      const jsonStr = raw.substring(startIndex, endIndex + 1);
+      const parsed = JSON.parse(jsonStr);
       parsed.method = 'gemini';
       return parsed;
     }
@@ -296,7 +336,7 @@ export async function detectContradictionsAI(documents) {
   if (!documents || documents.length < 2) return { contradictions: [], method: 'na' };
 
   const docSummaries = documents.slice(0, 6).map((d, i) =>
-    `Document ${i + 1} [${d.doc_type}]:\n${d.content_text?.substring(0, 800) || '(no text)'}`
+    `Document ${i + 1} [${d.doc_type}]:\n${d.content_text?.substring(0, 10000) || '(no text)'}`
   ).join('\n\n---\n\n');
 
   const prompt = `You are an expert forensic investigator specializing in cross-document analysis for Indian law enforcement.

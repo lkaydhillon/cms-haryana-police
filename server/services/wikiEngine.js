@@ -12,6 +12,7 @@
  */
 
 import 'dotenv/config';
+import crypto from 'crypto';
 import db from '../db.js';
 import {
   classifyDocument,
@@ -20,7 +21,7 @@ import {
   generateLeadsAI,
   detectContradictionsAI,
 } from './aiEngine.js';
-import { parseCSV, detectBankStatementSchema, detectCDRSchema } from './fileParser.js';
+import { detectBankStatementSchema, detectCDRSchema } from './fileParser.js';
 
 // ── Wiki page helpers ─────────────────────────────────────────────────────────
 function getWikiPage(caseId, slug) {
@@ -48,22 +49,110 @@ function appendToLog(caseId, entry) {
 }
 
 // ── Entity persistence helpers ────────────────────────────────────────────────
+function normalizeText(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function normalizePhone(value) {
+  return String(value || '').replace(/\D/g, '').slice(-10);
+}
+
 function persistPersons(caseId, persons) {
   const insert = db.prepare(`
     INSERT OR IGNORE INTO case_persons (id, case_id, name, role, phone, address, age)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
+  const update = db.prepare(`
+    UPDATE case_persons
+    SET phone = COALESCE(phone, ?), address = COALESCE(address, ?), age = COALESCE(age, ?)
+    WHERE id = ?
+  `);
+  const existingRows = db.prepare('SELECT id, name, role, phone FROM case_persons WHERE case_id = ?').all(caseId);
 
   const inserted = [];
   persons.forEach(p => {
+    if (!p?.name || normalizeText(p.name).length < 2) return;
     const id = `per-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const role = ['accused', 'victim', 'witness', 'officer'].includes(p.role) ? p.role : 'witness';
+    const phone = normalizePhone(p.phone) || null;
+    const nameKey = normalizeText(p.name);
+    const existing = existingRows.find(row => {
+      const samePhone = phone && normalizePhone(row.phone) === phone;
+      const sameNameRole = normalizeText(row.name) === nameKey && row.role === role;
+      return samePhone || sameNameRole;
+    });
+
+    if (existing) {
+      try { update.run(phone, p.address || null, p.age || null, existing.id); } catch (e) {
+        console.warn('Person dedupe update failed:', e.message);
+      }
+      return;
+    }
+
     try {
-      const result = insert.run(id, caseId, p.name, role, p.phone || null, p.address || null, p.age || null);
-      if (result.changes > 0) inserted.push(p);
-    } catch {}
+      const result = insert.run(id, caseId, p.name.trim(), role, phone, p.address || null, p.age || null);
+      if (result.changes > 0) {
+        inserted.push(p);
+        existingRows.push({ id, name: p.name.trim(), role, phone });
+      }
+    } catch (e) {
+      console.warn('Person insert failed:', e.message);
+    }
   });
   return inserted;
+}
+
+function insertLeadIfNew(caseId, lead) {
+  if (!lead?.title) return false;
+  const titleKey = normalizeText(lead.title);
+  const existing = db.prepare('SELECT id FROM case_leads WHERE case_id = ? AND lower(title) = ? LIMIT 1').get(caseId, titleKey);
+  if (existing) return false;
+
+  const id = `lead-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+  db.prepare(`
+    INSERT INTO case_leads (id, case_id, title, description, priority, confidence, category, sources, action, legal_basis)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    caseId,
+    lead.title,
+    lead.description || null,
+    lead.priority || 'medium',
+    Number.isFinite(Number(lead.confidence)) ? Number(lead.confidence) : 0.7,
+    lead.category || 'other',
+    JSON.stringify(lead.sources || []),
+    lead.action || null,
+    lead.legal_basis || null
+  );
+  return true;
+}
+
+function insertContradictionIfNew(caseId, contradiction) {
+  if (!contradiction?.title) return false;
+  const titleKey = normalizeText(contradiction.title);
+  const existing = db.prepare('SELECT id FROM case_contradictions WHERE case_id = ? AND lower(title) = ? LIMIT 1').get(caseId, titleKey);
+  if (existing) return false;
+
+  const id = `cont-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+  db.prepare(`
+    INSERT INTO case_contradictions (
+      id, case_id, title, severity, category, description,
+      document_a, document_b, significance, recommended_action
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    caseId,
+    contradiction.title,
+    contradiction.severity || 'moderate',
+    contradiction.category || 'other',
+    contradiction.description || null,
+    contradiction.document_a || null,
+    contradiction.document_b || null,
+    contradiction.significance || null,
+    contradiction.recommended_action || null
+  );
+  return true;
 }
 
 function persistBankTransactions(caseId, records, csvHeaders) {
@@ -95,7 +184,9 @@ function persistBankTransactions(caseId, records, csvHeaders) {
         null
       );
       count++;
-    } catch {}
+    } catch (e) {
+      console.warn('Bank row skipped:', e.message);
+    }
   });
   return count;
 }
@@ -123,7 +214,9 @@ function persistCDRRecords(caseId, records, csvHeaders) {
         null
       );
       count++;
-    } catch {}
+    } catch (e) {
+      console.warn('CDR row skipped:', e.message);
+    }
   });
   return count;
 }
@@ -183,7 +276,10 @@ ${pageList.includes('log') ? '| [log](log) | Complete operation audit trail |' :
 }
 
 // ── Core: Ingest Document ──────────────────────────────────────────────────────
-export async function ingestDocument(caseId, docType, content, structuredData) {
+export async function ingestDocument(caseId, docType, content, structuredData, options = {}) {
+  const contentHash = options.contentHash || crypto.createHash('sha256').update(content || '').digest('hex');
+  const persistDocument = options.persistDocument !== false;
+
   // 1. Classify document
   let classification = { doc_type: docType, language: 'english', confidence: 0.8 };
   try {
@@ -191,7 +287,9 @@ export async function ingestDocument(caseId, docType, content, structuredData) {
     if (classification.doc_type === 'Other' && docType !== 'Other') {
       classification.doc_type = docType;
     }
-  } catch {}
+  } catch (e) {
+    console.warn('Document classification failed:', e.message);
+  }
 
   // 2. AI entity extraction (Gemini)
   let entities = { persons: [], phones: [], events: [], key_findings: [], method: 'none' };
@@ -217,13 +315,46 @@ export async function ingestDocument(caseId, docType, content, structuredData) {
   // 5. Update wiki pages
   buildEntitiesPage(caseId, entities);
 
-  // Update timeline wiki
+  // Update timeline wiki + persist to case_events DB
   if (entities.events?.length) {
     const existing = getWikiPage(caseId, 'timeline');
     const prevTimeline = existing?.content_md || `# Case Timeline\n\n`;
     const section = `\n## Events from ${classification.doc_type}\n` +
       entities.events.map(e => `- **${e.date}** — ${e.description}${e.location ? ` *(${e.location})*` : ''}`).join('\n') + '\n';
     upsertWikiPage(caseId, 'timeline', prevTimeline + section);
+
+    // Also persist to case_events table so Timeline tab shows real data
+    const insertEvt = db.prepare(
+      'INSERT OR IGNORE INTO case_events (id, case_id, event_time, category, description, location) VALUES (?,?,?,?,?,?)'
+    );
+    entities.events.forEach(e => {
+      const evtId = `evt-ai-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      // Parse date string — try direct, fall back to now
+      let evtTime = new Date().toISOString();
+      if (e.date) {
+        try {
+          const parsed = new Date(e.date);
+          if (!isNaN(parsed.getTime())) evtTime = parsed.toISOString();
+        } catch (e) {
+          console.warn('Event date parse failed:', e.message);
+        }
+      }
+      const cat = (() => {
+        const d = (e.description || '').toLowerCase();
+        if (d.includes('arrest') || d.includes('apprehend')) return 'arrest';
+        if (d.includes('seiz') || d.includes('evidence')) return 'evidence';
+        if (d.includes('statement') || d.includes('deposition')) return 'statement';
+        if (d.includes('raid') || d.includes('search')) return 'raid';
+        if (d.includes('challan') || d.includes('chargesheet')) return 'challan';
+        if (d.includes('regist') || d.includes('fir') || d.includes('complaint')) return 'registration';
+        return 'other';
+      })();
+      try {
+        insertEvt.run(evtId, caseId, evtTime, cat, e.description || '', e.location || null);
+      } catch (err) {
+        console.warn('Event insert skipped:', err.message);
+      }
+    });
   }
 
   // 6. Run contradiction detection (Gemini)
@@ -231,24 +362,26 @@ export async function ingestDocument(caseId, docType, content, structuredData) {
   try {
     const docs = db.prepare('SELECT doc_type, content_text FROM case_documents WHERE case_id = ? ORDER BY uploaded_at DESC LIMIT 6').all(caseId);
     if (docs.length >= 1) {
-      const result = await detectContradictionsAI([{ doc_type: classification.doc_type, content_text: content }, ...docs]);
+      const comparisonDocs = docs
+        .filter(d => normalizeText(d.content_text) !== normalizeText(content))
+        .slice(0, 5);
+      const result = await detectContradictionsAI([{ doc_type: classification.doc_type, content_text: content }, ...comparisonDocs]);
       if (result.contradictions?.length) {
         contradictions = result.contradictions;
-        // Persist to DB
-        const insert = db.prepare(`
-          INSERT INTO case_contradictions (id, case_id, title, severity, category, description, document_a, document_b, recommended_action)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        contradictions.forEach(c => {
-          const id = `cont-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
-          try { insert.run(id, caseId, c.title, c.severity, c.category, c.description, c.document_a, c.document_b, c.recommended_action); } catch {}
+        const insertedContradictions = contradictions.filter(c => {
+          try { return insertContradictionIfNew(caseId, c); } catch (e) {
+            console.warn('Contradiction insert skipped:', e.message);
+            return false;
+          }
         });
 
         const existing = getWikiPage(caseId, 'contradictions');
         const prevContr = existing?.content_md || '# Contradictions & Inconsistencies\n\n';
         const section = '\n## Detected on ' + new Date().toLocaleDateString('en-IN') + '\n' +
-          contradictions.map(c => `- ⚠️ **${c.title}** [${c.severity?.toUpperCase()}]\n  ${c.description}\n  > *Recommended:* ${c.recommended_action || '—'}`).join('\n\n') + '\n';
-        upsertWikiPage(caseId, 'contradictions', prevContr + section);
+          insertedContradictions.map(c => `- ⚠️ **${c.title}** [${c.severity?.toUpperCase()}]\n  ${c.description}\n  > *Recommended:* ${c.recommended_action || '—'}`).join('\n\n') + '\n';
+        if (insertedContradictions.length) {
+          upsertWikiPage(caseId, 'contradictions', prevContr + section);
+        }
       }
     }
   } catch (e) {
@@ -261,33 +394,72 @@ export async function ingestDocument(caseId, docType, content, structuredData) {
       .map(p => `## ${p.page_slug}\n${p.content_md}`).join('\n\n');
     const leadsResult = await generateLeadsAI(wikiContent);
     if (leadsResult.leads?.length) {
-      const insert = db.prepare(`
-        INSERT INTO case_leads (id, case_id, title, description, priority, confidence, category, sources, action, legal_basis)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      leadsResult.leads.forEach(l => {
-        const id = `lead-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
-        try {
-          insert.run(id, caseId, l.title, l.description, l.priority, l.confidence,
-            l.category, JSON.stringify(l.sources || []), l.action, l.legal_basis || null);
-        } catch {}
+      const insertedLeads = leadsResult.leads.filter(l => {
+        try { return insertLeadIfNew(caseId, l); } catch (e) {
+          console.warn('Lead insert skipped:', e.message);
+          return false;
+        }
       });
 
       const existingLeads = getWikiPage(caseId, 'leads');
       const prevLeads = existingLeads?.content_md || '# Investigative Leads\n\n';
       const section = '\n## AI Generated — ' + new Date().toLocaleDateString('en-IN') + '\n' +
-        leadsResult.leads.map(l => `- [ ] **[${l.priority?.toUpperCase()}]** ${l.title}\n  ${l.description}`).join('\n') + '\n';
-      upsertWikiPage(caseId, 'leads', prevLeads + section);
+        insertedLeads.map(l => `- [ ] **[${l.priority?.toUpperCase()}]** ${l.title}\n  ${l.description}`).join('\n') + '\n';
+      if (insertedLeads.length) {
+        upsertWikiPage(caseId, 'leads', prevLeads + section);
+      }
     }
   } catch (e) {
     console.error('Lead generation error:', e.message);
   }
 
-  // 8. Store raw document
-  try {
-    db.prepare('INSERT INTO case_documents (id, case_id, doc_type, content_text, uploaded_at) VALUES (?, ?, ?, ?, ?)')
-      .run(`doc-${Date.now()}`, caseId, classification.doc_type, content.substring(0, 50000), new Date().toISOString());
-  } catch {}
+  // 8. Store raw text only when no upload row already exists for this document.
+  if (persistDocument) {
+    try {
+      const existingDoc = db.prepare('SELECT id FROM case_documents WHERE case_id = ? AND content_hash = ? LIMIT 1').get(caseId, contentHash);
+      if (!existingDoc) {
+        db.prepare(`
+          INSERT INTO case_documents (
+            id, case_id, doc_type, content_text, content_hash, language,
+            classification_confidence, extraction_method, processing_status, uploaded_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          options.documentId || `doc-${Date.now()}`,
+          caseId,
+          classification.doc_type,
+          content.substring(0, 50000),
+          contentHash,
+          classification.language || null,
+          classification.confidence ?? null,
+          entities.method || null,
+          'extracted',
+          new Date().toISOString()
+        );
+      }
+    } catch (e) {
+      console.warn('Document persistence skipped:', e.message);
+    }
+  } else if (options.documentId) {
+    try {
+      db.prepare(`
+        UPDATE case_documents
+        SET doc_type = ?, language = ?, classification_confidence = ?,
+            extraction_method = ?, processing_status = ?
+        WHERE id = ? AND case_id = ?
+      `).run(
+        classification.doc_type,
+        classification.language || null,
+        classification.confidence ?? null,
+        entities.method || null,
+        'extracted',
+        options.documentId,
+        caseId
+      );
+    } catch (e) {
+      console.warn('Document metadata update skipped:', e.message);
+    }
+  }
 
   // 9. Update index and log
   buildIndexPage(caseId);

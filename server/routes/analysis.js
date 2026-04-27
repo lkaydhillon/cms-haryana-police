@@ -1,12 +1,47 @@
 import express from 'express';
 import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 import db from '../db.js';
 import { ingestDocument, queryWiki, lintWiki, refreshLeads } from '../services/wikiEngine.js';
 import { parseFile } from '../services/fileParser.js';
 import { detectContradictionsAI } from '../services/aiEngine.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
+function ensureCaseDir(caseId) {
+  const caseDir = path.join(UPLOADS_DIR, caseId);
+  if (!fs.existsSync(caseDir)) {
+    fs.mkdirSync(caseDir, { recursive: true });
+  }
+  return caseDir;
+}
+
+function resolveUploadedPath(filePath) {
+  const relativePath = String(filePath || '').replace(/^\/?uploads[\\/]/, '');
+  const resolvedPath = path.resolve(UPLOADS_DIR, relativePath);
+  const uploadsRoot = path.resolve(UPLOADS_DIR);
+  if (!resolvedPath.startsWith(uploadsRoot)) {
+    return null;
+  }
+  return resolvedPath;
+}
+
+function normalizeText(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } }); // 100MB file size limit
 
 // ─── GET /api/analysis/cases ───────────────────────────────────────────────────
 router.get('/cases', (req, res) => {
@@ -16,6 +51,53 @@ router.get('/cases', (req, res) => {
     ORDER BY c.registered_at DESC
   `).all();
   res.json(cases);
+});
+
+// ─── POST /api/analysis/cases ───────────────────────────────────────────────────
+router.post('/cases', (req, res) => {
+  const { title, case_type, status, offense_section, station_id, io_id, description } = req.body;
+  if (!title || !case_type) return res.status(400).json({ error: 'title and case_type are required' });
+  
+  const id = `case-${Date.now()}`;
+  const now = new Date().toISOString();
+  
+  db.prepare(`
+    INSERT INTO cases (id, title, case_type, status, offense_section, station_id, io_id, registered_at, description)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, title, case_type, status || 'open', offense_section || null, station_id || null, io_id || null, now, description || null);
+  
+  const newCase = db.prepare('SELECT c.*, p.full_name as io_name, p.rank as io_rank FROM cases c LEFT JOIN profiles p ON c.io_id = p.id WHERE c.id = ?').get(id);
+  res.status(201).json(newCase);
+});
+
+// ─── DELETE /api/analysis/cases/:id ─────────────────────────────────────────
+router.delete('/cases/:id', (req, res) => {
+  const caseId = req.params.id;
+  
+  try {
+    // Delete from all related tables first (due to foreign key constraints)
+    db.prepare('DELETE FROM case_contradictions WHERE case_id = ?').run(caseId);
+    db.prepare('DELETE FROM case_leads WHERE case_id = ?').run(caseId);
+    db.prepare('DELETE FROM ip_records WHERE case_id = ?').run(caseId);
+    db.prepare('DELETE FROM bank_transactions WHERE case_id = ?').run(caseId);
+    db.prepare('DELETE FROM cdr_records WHERE case_id = ?').run(caseId);
+    db.prepare('DELETE FROM case_documents WHERE case_id = ?').run(caseId);
+    db.prepare('DELETE FROM case_events WHERE case_id = ?').run(caseId);
+    db.prepare('DELETE FROM case_persons WHERE case_id = ?').run(caseId);
+    db.prepare('DELETE FROM case_wiki_pages WHERE case_id = ?').run(caseId);
+    
+    // Delete the case itself
+    const result = db.prepare('DELETE FROM cases WHERE id = ?').run(caseId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
+    
+    res.json({ success: true, message: 'Case deleted successfully' });
+  } catch (error) {
+    console.error('Delete case error:', error);
+    res.status(500).json({ error: 'Failed to delete case' });
+  }
 });
 
 // ─── GET /api/analysis/cases/:id ──────────────────────────────────────────────
@@ -31,12 +113,82 @@ router.get('/cases/:id', (req, res) => {
 
 // ─── GET /api/analysis/cases/:id/timeline ─────────────────────────────────────
 router.get('/cases/:id/timeline', (req, res) => {
-  const events = db.prepare(`
-    SELECT e.*, p.full_name as officer_name
-    FROM case_events e LEFT JOIN profiles p ON e.officer_id = p.id
-    WHERE e.case_id = ? ORDER BY e.event_time ASC
-  `).all(req.params.id);
-  res.json(events);
+  const caseId = req.params.id;
+  
+  // Only return actual uploaded documents - NO fake investigation events
+  const docs = db.prepare(`
+    SELECT id, file_name, file_path, file_size, mime_type, doc_type, uploaded_at as event_time, content_text
+    FROM case_documents WHERE case_id = ? ORDER BY uploaded_at ASC
+  `).all(caseId);
+
+  if (!docs || docs.length === 0) {
+    return res.json([]);
+  }
+
+  // Convert documents to timeline items - each uploaded document is one timeline entry
+  const timeline = docs.map(d => {
+    // Create meaningful description based on doc_type
+    let description = '';
+    let category = 'document';
+    
+    const docType = d.doc_type?.toLowerCase() || '';
+    const fileName = d.file_name?.toLowerCase() || '';
+    
+    if (fileName.includes('fir') || docType.includes('fir')) {
+      category = 'registration';
+      description = `FIR (First Information Report) registered - Original complaint document`;
+    } else if (fileName.includes('complaint') || docType.includes('complaint')) {
+      category = 'registration';
+      description = `Complaint submitted to police station`;
+    } else if (fileName.includes('statement') || docType.includes('statement')) {
+      category = 'statement';
+      description = `Statement recorded - Deposition from involved party`;
+    } else if (fileName.includes('arrest') || docType.includes('arrest')) {
+      category = 'arrest';
+      description = `Arrest memorandum - Accused apprehended`;
+    } else if (fileName.includes('evidence') || docType.includes('evidence')) {
+      category = 'evidence';
+      description = `Physical/Digital evidence collected and seized`;
+    } else if (fileName.includes('raid') || docType.includes('raid')) {
+      category = 'raid';
+      description = `Search & Seizure operation conducted`;
+    } else if (fileName.includes('chargesheet') || docType.includes('chargesheet')) {
+      category = 'challan';
+      description = `Charge sheet filed in court`;
+    } else if (fileName.includes('cdr') || docType.includes('cdr')) {
+      category = 'document';
+      description = `CDR (Call Detail Records) received from service provider`;
+    } else if (fileName.includes('bank') || fileName.includes('account') || docType.includes('bank')) {
+      category = 'document';
+      description = `Bank/Financial records obtained`;
+    } else if (fileName.includes('ipdr') || fileName.includes('location')) {
+      category = 'document';
+      description = `IPDR (Internet Protocol Detail Record) - Location data`;
+    } else {
+      description = `${d.doc_type || 'Document'} uploaded for investigation`;
+    }
+
+    return {
+      id: `doc-${d.id}`,
+      case_id: caseId,
+      event_time: d.event_time,
+      category,
+      description,
+      location: 'Police Station Records',
+      record_type: 'document_upload',
+      officer_name: null,
+      document: {
+        id: d.id,
+        file_name: d.file_name,
+        file_path: d.file_path,
+        file_size: d.file_size,
+        mime_type: d.mime_type,
+        doc_type: d.doc_type
+      }
+    };
+  }).sort((a, b) => new Date(a.event_time) - new Date(b.event_time));
+
+  res.json(timeline);
 });
 
 // ─── GET /api/analysis/cases/:id/graph ────────────────────────────────────────
@@ -57,6 +209,12 @@ router.get('/cases/:id/graph', (req, res) => {
     if (!addedNodes.has(node.id)) {
       nodes.push(node);
       addedNodes.add(node.id);
+    }
+  };
+
+  const safeLink = (sourceId, targetId, label) => {
+    if (addedNodes.has(sourceId) && addedNodes.has(targetId)) {
+      links.push({ source: sourceId, target: targetId, label });
     }
   };
 
@@ -100,7 +258,7 @@ router.get('/cases/:id/graph', (req, res) => {
         ...(arrestEvent ? [{ docType: 'Arrest Memo', date: new Date(arrestEvent.event_time).toLocaleDateString('en-IN') }] : []),
       ],
     });
-    links.push({ source: `case_${caseId}`, target: `person_${p.id}`, label: p.role });
+    safeLink(`case_${caseId}`, `person_${p.id}`, p.role);
 
     // Phone nodes for persons with phones
     if (p.phone) {
@@ -114,12 +272,12 @@ router.get('/cases/:id/graph', (req, res) => {
         details: { number: p.phone, owner: p.name, role: p.role },
         sourceRefs: [{ docType: 'CDR Records / FIR', date: '' }],
       });
-      links.push({ source: `person_${p.id}`, target: phoneNodeId, label: 'uses' });
+      safeLink(`person_${p.id}`, phoneNodeId, 'uses');
     }
   });
 
   // Bank account nodes
-  bankTxns.forEach((row, i) => {
+  bankTxns.forEach((row) => {
     if (!row.account_no) return;
     const acctId = `bank_${row.account_no}`;
     const isVictim = row.account_no.includes('4521');
@@ -133,16 +291,16 @@ router.get('/cases/:id/graph', (req, res) => {
       details: { account: row.account_no, type: isVictim ? 'Victim' : 'Mule', debit: `₹${(txns?.d || 0).toLocaleString('en-IN')}`, credit: `₹${(txns?.c || 0).toLocaleString('en-IN')}` },
       sourceRefs: [{ docType: 'Bank Statement', date: '' }],
     });
-    links.push({ source: `case_${caseId}`, target: acctId, label: 'financial' });
+    safeLink(`case_${caseId}`, acctId, 'financial');
 
     // Link victim account to victim person
     if (isVictim) {
       const victim = persons.find(p => p.role === 'victim');
-      if (victim) links.push({ source: `person_${victim.id}`, target: acctId, label: 'owns' });
+      if (victim) safeLink(`person_${victim.id}`, acctId, 'owns');
     } else {
       // Link mule to accused
       const accused = persons.find(p => p.role === 'accused');
-      if (accused) links.push({ source: `person_${accused.id}`, target: acctId, label: 'mule' });
+      if (accused) safeLink(`person_${accused.id}`, acctId, 'mule');
     }
   });
 
@@ -168,10 +326,11 @@ router.get('/cases/:id/graph', (req, res) => {
   // CDR links between phones
   const addedLinks = new Set();
   cdrRecords.forEach(r => {
+    if (!r.caller || !r.receiver) return;
     const linkKey = `${r.caller}|${r.receiver}`;
     const revKey = `${r.receiver}|${r.caller}`;
     if (!addedLinks.has(linkKey) && !addedLinks.has(revKey)) {
-      links.push({ source: `phone_${r.caller}`, target: `phone_${r.receiver}`, label: 'called' });
+      safeLink(`phone_${r.caller}`, `phone_${r.receiver}`, 'called');
       addedLinks.add(linkKey);
     }
   });
@@ -187,9 +346,9 @@ router.get('/cases/:id/graph', (req, res) => {
       details: { time: new Date(e.event_time).toLocaleDateString('en-IN'), location: e.location || '—' },
       sourceRefs: [{ docType: e.category.charAt(0).toUpperCase() + e.category.slice(1) + ' Record', date: new Date(e.event_time).toLocaleDateString('en-IN') }],
     });
-    links.push({ source: `case_${caseId}`, target: `event_${e.id}`, label: e.category });
+    safeLink(`case_${caseId}`, `event_${e.id}`, e.category);
     persons.filter(p => e.description.includes(p.name)).forEach(p => {
-      links.push({ source: `person_${p.id}`, target: `event_${e.id}`, label: 'mentioned' });
+      safeLink(`person_${p.id}`, `event_${e.id}`, 'mentioned');
     });
   });
 
@@ -198,26 +357,25 @@ router.get('/cases/:id/graph', (req, res) => {
 
 // ─── GET /api/analysis/cases/:id/cdr ──────────────────────────────────────────
 router.get('/cases/:id/cdr', (req, res) => {
+  const caseId = req.params.id;
+  
+  // Only return REAL CDR data - NO fake data when empty
   let records = [];
   try {
-    records = db.prepare('SELECT * FROM cdr_records WHERE case_id = ? ORDER BY call_time ASC').all(req.params.id);
+    records = db.prepare('SELECT * FROM cdr_records WHERE case_id = ? ORDER BY call_time ASC').all(caseId);
   } catch (e) {
-    console.warn("CDR Table error or empty:", e.message);
+    console.warn("CDR Table error:", e.message);
   }
 
+  // If no real CDR records, return clear empty response - NO fake data!
   if (!records || records.length === 0) {
-    // Provide realistic dummy CDR data for representation
-    const baseTime = Date.now() - 3 * 24 * 3600000; // 3 days ago
-    records = [
-      { id: 1, case_id: req.params.id, caller: '9988776655', receiver: '9000000001', call_time: new Date(baseTime).toISOString(), duration: 120, type: 'outgoing', location: 'Sector 14' },
-      { id: 2, case_id: req.params.id, caller: '9000000001', receiver: '9988776655', call_time: new Date(baseTime + 300000).toISOString(), duration: 45, type: 'incoming', location: 'Unknown' },
-      { id: 3, case_id: req.params.id, caller: '9988776655', receiver: '9000000002', call_time: new Date(baseTime + 3600000).toISOString(), duration: 300, type: 'outgoing', location: 'Sector 14' },
-      { id: 4, case_id: req.params.id, caller: '9812345678', receiver: '9988776655', call_time: new Date(baseTime + 7200000).toISOString(), duration: 60, type: 'incoming', location: 'Sector 18' },
-      { id: 5, case_id: req.params.id, caller: '9988776655', receiver: '9000000001', call_time: new Date(baseTime + 86400000).toISOString(), duration: 15, type: 'outgoing', location: 'Sector 14' },
-      { id: 6, case_id: req.params.id, caller: '9000000001', receiver: '9988776655', call_time: new Date(baseTime + 86405000).toISOString(), duration: 30, type: 'incoming', location: 'Unknown' }, // Rapid call
-      { id: 7, case_id: req.params.id, caller: '9000000001', receiver: '9876543210', call_time: new Date(baseTime + 86410000).toISOString(), duration: 500, type: 'outgoing', location: 'Unknown' },
-      { id: 8, case_id: req.params.id, caller: '9988776655', receiver: '9812345678', call_time: new Date(baseTime + 172800000).toISOString(), duration: 210, type: 'outgoing', location: 'Sector 14 Market' },
-    ];
+    return res.json({
+      records: [],
+      frequency: [],
+      suspiciousPatterns: [],
+      phoneToPersonMap: {},
+      message: 'No CDR records uploaded for this case. Upload CDR file from service provider to analyze call patterns.'
+    });
   }
 
   const freq = {};
@@ -232,8 +390,10 @@ router.get('/cases/:id/cdr', (req, res) => {
   // Build phone → person map
   let knownPersonPhones = [];
   try {
-    knownPersonPhones = db.prepare('SELECT phone, name, role FROM case_persons WHERE case_id = ? AND phone IS NOT NULL').all(req.params.id);
-  } catch (e) {}
+    knownPersonPhones = db.prepare('SELECT phone, name, role FROM case_persons WHERE case_id = ? AND phone IS NOT NULL').all(caseId);
+  } catch (e) {
+    console.warn('Known person phone lookup failed:', e.message);
+  }
 
   const phoneToPersonMap = {};
   knownPersonPhones.forEach(p => { phoneToPersonMap[p.phone] = { name: p.name, role: p.role }; });
@@ -272,6 +432,18 @@ router.get('/cases/:id/cdr', (req, res) => {
 // ─── GET /api/analysis/cases/:id/bank ─────────────────────────────────────────
 router.get('/cases/:id/bank', (req, res) => {
   const transactions = db.prepare('SELECT * FROM bank_transactions WHERE case_id = ? ORDER BY date ASC').all(req.params.id);
+
+  // Return clear empty response if no data - NO fake data!
+  if (!transactions || transactions.length === 0) {
+    return res.json({
+      transactions: [],
+      accounts: [],
+      suspicious: [],
+      totalDebit: 0,
+      totalCredit: 0,
+      message: 'No bank records uploaded for this case. Submit formal request to bank for account statements.'
+    });
+  }
 
   const accounts = {};
   transactions.forEach(t => {
@@ -335,8 +507,12 @@ router.post('/cases/:id/scan', async (req, res) => {
     if (contradictions.length > 0) {
       const insert = db.prepare('INSERT OR IGNORE INTO case_contradictions (id, case_id, title, severity, category, description, document_a, document_b, significance, recommended_action) VALUES (?,?,?,?,?,?,?,?,?,?)');
       contradictions.forEach(c => {
+        const exists = db.prepare('SELECT id FROM case_contradictions WHERE case_id = ? AND lower(title) = ? LIMIT 1').get(req.params.id, normalizeText(c.title));
+        if (exists) return;
         const id = `cont-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
-        try { insert.run(id, req.params.id, c.title, c.severity, c.category, c.description, c.document_a, c.document_b, c.significance, c.recommended_action); } catch {}
+        try { insert.run(id, req.params.id, c.title, c.severity, c.category, c.description, c.document_a, c.document_b, c.significance, c.recommended_action); } catch (e) {
+          console.warn('Contradiction scan insert skipped:', e.message);
+        }
       });
     }
 
@@ -344,8 +520,12 @@ router.post('/cases/:id/scan', async (req, res) => {
     if (freshLeads.leads?.length) {
       const insert = db.prepare('INSERT OR IGNORE INTO case_leads (id, case_id, title, description, priority, confidence, category, sources, action, legal_basis) VALUES (?,?,?,?,?,?,?,?,?,?)');
       freshLeads.leads.forEach(l => {
+        const exists = db.prepare('SELECT id FROM case_leads WHERE case_id = ? AND lower(title) = ? LIMIT 1').get(req.params.id, normalizeText(l.title));
+        if (exists) return;
         const id = `lead-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
-        try { insert.run(id, req.params.id, l.title, l.description, l.priority, l.confidence, l.category, JSON.stringify(l.sources || []), l.action, l.legal_basis || null); } catch {}
+        try { insert.run(id, req.params.id, l.title, l.description, l.priority, l.confidence, l.category, JSON.stringify(l.sources || []), l.action, l.legal_basis || null); } catch (e) {
+          console.warn('Lead scan insert skipped:', e.message);
+        }
       });
     }
 
@@ -362,20 +542,83 @@ router.get('/cases/:id/wiki', (req, res) => {
   res.json({ pages, lint });
 });
 
+// ─── GET /api/analysis/cases/:id/documents ────────────────────────────────────
+router.get('/cases/:id/documents', (req, res) => {
+  try {
+    const docs = db.prepare(`
+      SELECT id, case_id, doc_type, file_name, file_path, file_size, mime_type, uploaded_at,
+             CASE WHEN content_text IS NOT NULL THEN length(content_text) ELSE 0 END as text_length
+      FROM case_documents 
+      WHERE case_id = ? 
+      ORDER BY uploaded_at DESC
+    `).all(req.params.id);
+    res.json({ documents: docs, total: docs.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── POST /api/analysis/cases/:id/upload (file upload) ────────────────────────
 router.post('/cases/:id/upload', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file provided' });
   try {
+    const caseId = req.params.id;
+    const docId = `doc-${Date.now()}`;
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const fileName = `${docId}${ext}`;
+    
+    const caseDir = ensureCaseDir(caseId);
+    const filePath = path.join(caseDir, fileName);
+    fs.writeFileSync(filePath, req.file.buffer);
+
     const parsed = await parseFile(req.file.buffer, req.file.originalname, req.file.mimetype);
     if (!parsed.success || !parsed.text?.trim()) {
+      fs.unlinkSync(filePath);
       return res.status(422).json({ error: 'Could not extract text from file', details: parsed.error });
     }
 
     const structuredData = parsed.records ? { records: parsed.records, headers: parsed.headers } : null;
     const docType = req.body.doc_type || 'Other';
 
-    const result = await ingestDocument(req.params.id, docType, parsed.text, structuredData);
-    res.json({ success: true, fileType: parsed.fileType, textLength: parsed.text?.length, ...result });
+    const contentHash = crypto.createHash('sha256').update(parsed.text).digest('hex');
+
+    db.prepare(`
+      INSERT INTO case_documents (
+        id, case_id, doc_type, content_text, file_name, file_path, file_size, mime_type,
+        content_hash, extraction_method, ocr_confidence, processing_status, uploaded_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      docId,
+      caseId,
+      docType,
+      parsed.text.substring(0, 1000000),
+      req.file.originalname,
+      `/uploads/${caseId}/${fileName}`,
+      req.file.size,
+      req.file.mimetype,
+      contentHash,
+      parsed.method || parsed.fileType || null,
+      parsed.confidence ?? null,
+      'parsed',
+      new Date().toISOString()
+    );
+
+    const result = await ingestDocument(caseId, docType, parsed.text, structuredData, {
+      documentId: docId,
+      persistDocument: false,
+      contentHash,
+    });
+    res.json({ 
+      success: true, 
+      fileType: parsed.fileType, 
+      textLength: parsed.text?.length,
+      documentId: docId,
+      fileName: req.file.originalname,
+      filePath: `/uploads/${caseId}/${fileName}`,
+      fileSize: req.file.size,
+      ...result
+    });
   } catch (err) {
     console.error('Upload error:', err);
     res.status(500).json({ error: 'Upload failed', details: err.message });
@@ -387,7 +630,10 @@ router.post('/cases/:id/ingest', async (req, res) => {
   const { doc_type, content } = req.body;
   if (!doc_type || !content) return res.status(400).json({ error: 'doc_type and content are required' });
   try {
-    const result = await ingestDocument(req.params.id, doc_type, content);
+    const result = await ingestDocument(req.params.id, doc_type, content, null, {
+      persistDocument: true,
+      contentHash: crypto.createHash('sha256').update(content).digest('hex'),
+    });
     res.json({ success: true, extracted: result });
   } catch (err) {
     console.error('Ingest error:', err);
@@ -406,6 +652,36 @@ router.post('/cases/:id/query', async (req, res) => {
     console.error('Query error:', err);
     res.status(500).json({ error: 'Query failed', details: err.message });
   }
+});
+
+// ─── GET /api/analysis/cases/:id/documents ───────────────────────────────────────
+router.get('/cases/:id/documents', (req, res) => {
+  const docs = db.prepare(`
+    SELECT id, doc_type, file_name, file_path, file_size, mime_type, content_text, uploaded_at
+    FROM case_documents WHERE case_id = ? ORDER BY uploaded_at DESC
+  `).all(req.params.id);
+  res.json(docs);
+});
+
+// ─── GET /api/analysis/cases/:id/documents/:docId/download ───────────────────────────────────────
+router.get('/cases/:id/documents/:docId/download', (req, res) => {
+  const doc = db.prepare('SELECT file_path, file_name, mime_type FROM case_documents WHERE id = ? AND case_id = ?').get(req.params.docId, req.params.id);
+  if (!doc || !doc.file_path) return res.status(404).json({ error: 'File not found' });
+  
+  const filePath = resolveUploadedPath(doc.file_path);
+  if (!filePath) return res.status(400).json({ error: 'Invalid file path' });
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' });
+  
+  res.setHeader('Content-Type', doc.mime_type || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `inline; filename="${doc.file_name}"`);
+  res.sendFile(filePath);
+});
+
+// ─── GET /api/analysis/cases/:id/documents/:docId ───────────────────────────────────────
+router.get('/cases/:id/documents/:docId', (req, res) => {
+  const doc = db.prepare('SELECT * FROM case_documents WHERE id = ? AND case_id = ?').get(req.params.docId, req.params.id);
+  if (!doc) return res.status(404).json({ error: 'Document not found' });
+  res.json(doc);
 });
 
 export default router;

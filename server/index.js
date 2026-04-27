@@ -1,4 +1,4 @@
-﻿import 'dotenv/config';
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
@@ -8,6 +8,7 @@ import Tesseract from 'tesseract.js';
 import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import dns from 'dns';
 import db from './db.js';
 import FormData from 'form-data';
@@ -57,6 +58,9 @@ const upload = multer({
   }
 });
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 const PORT = 5000;
 const JWT_SECRET = 'local-dev-secret-haryana-police-123';
@@ -74,7 +78,19 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/kb-files', express.static(path.join(process.cwd(), 'user_knowledge_base')));
 app.use('/cases', express.static(path.join(process.cwd(), 'cases')));
 
-// â”€â”€â”€ Auth Middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Static File Serving for Uploads ───────────────────────────────────────────────
+const UPLOADS_DIR = path.join(__dirname, '../uploads');
+app.use('/uploads', express.static(UPLOADS_DIR, {
+  setHeaders: (res, filePath) => {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.pdf') {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline');
+    }
+  }
+}));
+
+// ── Auth Middleware ────────────────────────────────────────────────────────────
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];

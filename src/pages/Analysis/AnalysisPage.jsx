@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Select, Tabs, Tag, Space, Spin, Empty, Tooltip } from 'antd';
+import { Select, Tabs, Tag, Space, Spin, Empty, Tooltip, Button, Modal, Form, Input, Radio, message } from 'antd';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faClock, faShareNodes, faPhone, faLightbulb, faBuilding,
   faTriangleExclamation, faRocket, faExpand, faCompress,
-  faRobot, faHashtag, faCalendarDays, faUser, faFolderOpen,
-  faMicrochip, faChevronUp, faChevronDown, faCircleDot,
+  faRobot, faFolderOpen, faMicrochip, faChevronUp, faChevronDown,
+  faPlus, faTrash,
 } from '@fortawesome/free-solid-svg-icons';
-import TimelineView       from './TimelineView';
+import TimelineView from './TimelineView';
 import KnowledgeGraphView from './KnowledgeGraphView';
-import CDRAnalysisView    from './CDRAnalysisView';
-import InsightsView       from './InsightsView';
-import BankAnalysisView   from './BankAnalysisView';
-import LeadsView          from './LeadsView';
+import CDRAnalysisView from './CDRAnalysisView';
+import InsightsView from './InsightsView';
+import BankAnalysisView from './BankAnalysisView';
+import LeadsView from './LeadsView';
 import ContradictionsView from './ContradictionsView';
 
 const { Option } = Select;
@@ -22,7 +22,7 @@ const FA = ({ icon, style, spin }) => (
 );
 
 // Tab bar + a little padding
-const TAB_BAR_H  = 46;
+const TAB_BAR_H = 46;
 const WRAPPER_PY = 24; // top+bottom padding of outer wrapper
 
 /* ── Fullscreen toggle ───────────────────────────────────────────────────── */
@@ -61,7 +61,7 @@ function MetaItem({ icon, label, value, mono, accent }) {
 }
 
 /* ── Collapsed mini-bar ──────────────────────────────────────────────────── */
-function MiniBar({ selectedCase, cases, selectedCaseId, onCaseChange, isFullscreen, onToggleFullscreen, onExpand }) {
+function MiniBar({ selectedCase, cases, selectedCaseId, onCaseChange, isFullscreen, onToggleFullscreen, onExpand, onCreateCase, onDeleteCase }) {
   const statusColor = (s) => ({ open: '#fbbf24', investigation: '#60a5fa', challan: '#a78bfa', closed: '#4ade80' }[s] || '#94a3b8');
   return (
     <div style={{
@@ -96,13 +96,21 @@ function MiniBar({ selectedCase, cases, selectedCaseId, onCaseChange, isFullscre
               {selectedCase.complaint_number || selectedCase.fir_number}
             </span>
           )}
+          <Tooltip title="Create a fresh empty case">
+            <Button type="text" size="small" icon={<FA icon={faPlus} />} onClick={onCreateCase} style={{ color: 'var(--accent)' }} />
+          </Tooltip>
         </div>
       ) : (
-        <Select showSearch style={{ flex: 1, minWidth: 180 }} size="small" placeholder="Select case…"
-          value={selectedCaseId} onChange={onCaseChange} optionFilterProp="children"
-          getPopupContainer={trigger => trigger.parentNode}>
-          {cases.map(c => <Option key={c.id} value={c.id}>[{c.case_type.toUpperCase()}] {c.title}</Option>)}
-        </Select>
+        <Space>
+          <Select showSearch style={{ flex: 1, minWidth: 180 }} size="small" placeholder="Select case…"
+            value={selectedCaseId} onChange={onCaseChange} optionFilterProp="children"
+            getPopupContainer={trigger => trigger.parentNode}>
+            {cases.map(c => <Option key={c.id} value={c.id}>[{c.case_type.toUpperCase()}] {c.title}</Option>)}
+          </Select>
+          <Tooltip title="Create New Case">
+            <Button type="primary" size="small" icon={<FA icon={faPlus} />} onClick={onCreateCase} style={{ background: 'var(--accent)', borderColor: 'var(--accent)' }} />
+          </Tooltip>
+        </Space>
       )}
 
       {/* Spacer */}
@@ -118,6 +126,19 @@ function MiniBar({ selectedCase, cases, selectedCaseId, onCaseChange, isFullscre
             Case Info
           </button>
         </Tooltip>
+        {selectedCase && onDeleteCase && (
+          <Tooltip title="Delete this case">
+            <button onClick={onDeleteCase} style={{
+              display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px',
+              borderRadius: 6, border: '1px solid rgba(255,77,77,0.3)',
+              background: 'rgba(255,77,77,0.1)', color: '#ff4d4f',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            }}>
+              <FA icon={faTrash} style={{ fontSize: 10 }} />
+              Delete
+            </button>
+          </Tooltip>
+        )}
         <FullscreenBtn isFullscreen={isFullscreen} onToggle={onToggleFullscreen} />
       </div>
     </div>
@@ -126,22 +147,103 @@ function MiniBar({ selectedCase, cases, selectedCaseId, onCaseChange, isFullscre
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 export default function AnalysisPage() {
-  const [cases, setCases]                   = useState([]);
+  const [cases, setCases] = useState([]);
   const [selectedCaseId, setSelectedCaseId] = useState(null);
-  const [selectedCase, setSelectedCase]     = useState(null);
-  const [activeTab, setActiveTab]           = useState('timeline');
-  const [loading, setLoading]               = useState(true);
-  const [isFullscreen, setIsFullscreen]     = useState(false);
+  const [selectedCase, setSelectedCase] = useState(null);
+  const [activeTab, setActiveTab] = useState('timeline');
+  const [loading, setLoading] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [form] = Form.useForm();
 
   // "collapsed" = top section hidden, only the mini-bar shows
   const [headerCollapsed, setHeaderCollapsed] = useState(true);
 
-  const headerRef   = useRef(null);
+  const headerRef = useRef(null);
   const selectorRef = useRef(null);
-  const wrapperRef  = useRef(null);
+  const wrapperRef = useRef(null);
 
-  const token   = localStorage.getItem('token');
+  const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
+
+  const handleCreateCase = async (values) => {
+    setCreateLoading(true);
+    try {
+      const res = await fetch('/api/analysis/cases', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(values)
+      });
+      const newCase = await res.json();
+      if (newCase.id) {
+        message.success('Case created successfully!');
+        setCases([newCase, ...cases]);
+        setSelectedCaseId(newCase.id);
+        setSelectedCase(newCase);
+        setCreateModalOpen(false);
+        form.resetFields();
+      }
+    } catch (err) {
+      message.error('Failed to create case');
+    }
+    setCreateLoading(false);
+  };
+
+  const handleDeleteCase = async () => {
+    if (!selectedCaseId) return;
+    
+    const caseToDelete = cases.find(c => c.id === selectedCaseId);
+    if (!caseToDelete) return;
+
+    Modal.confirm({
+      title: 'Delete Case',
+      icon: null,
+      content: (
+        <div>
+          <p>Are you sure you want to delete this case?</p>
+          <p style={{ marginTop: 8, fontWeight: 600, color: '#ff4d4f' }}>
+            [{caseToDelete.case_type?.toUpperCase()}] {caseToDelete.title}
+          </p>
+          <p style={{ marginTop: 8, color: 'var(--text-dim)', fontSize: 12 }}>
+            This will permanently delete all associated data including:
+            <br />• Events, Persons, Documents
+            <br />• CDR Records, Bank Transactions
+            <br />• AI Leads, Contradictions
+          </p>
+        </div>
+      ),
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const res = await fetch(`/api/analysis/cases/${selectedCaseId}`, {
+            method: 'DELETE',
+            headers: { ...headers, 'Content-Type': 'application/json' }
+          });
+          
+          if (res.ok) {
+            message.success('Case deleted successfully');
+            // Remove from cases list and select next one
+            const remaining = cases.filter(c => c.id !== selectedCaseId);
+            setCases(remaining);
+            if (remaining.length > 0) {
+              setSelectedCaseId(remaining[0].id);
+              setSelectedCase(remaining[0]);
+            } else {
+              setSelectedCaseId(null);
+              setSelectedCase(null);
+            }
+          } else {
+            const data = await res.json();
+            message.error(data.error || 'Failed to delete case');
+          }
+        } catch (err) {
+          message.error('Failed to delete case');
+        }
+      }
+    });
+  };
 
   const toggleFullscreen = useCallback(() => setIsFullscreen(f => !f), []);
 
@@ -186,17 +288,17 @@ export default function AnalysisPage() {
   };
 
   const statusColor = (s) => ({ open: 'warning', investigation: 'processing', challan: 'purple', closed: 'success' }[s] || 'default');
-  const typeColor   = (t) => t === 'fir' ? 'error' : 'gold';
+  const typeColor = (t) => t === 'fir' ? 'error' : 'gold';
 
   /* ── Tab definitions ─────────────────────────────────────────────────── */
   const tabItems = [
-    { key: 'timeline',        label: <span style={{ display:'flex', alignItems:'center', gap:6 }}><FA icon={faClock} />Timeline</span>,              children: selectedCaseId ? <TimelineView       caseId={selectedCaseId} headers={headers} caseData={selectedCase} /> : null },
-    { key: 'graph',           label: <span style={{ display:'flex', alignItems:'center', gap:6 }}><FA icon={faShareNodes} />Knowledge Graph</span>,   children: selectedCaseId ? <KnowledgeGraphView  caseId={selectedCaseId} headers={headers} caseData={selectedCase} /> : null },
-    { key: 'cdr',             label: <span style={{ display:'flex', alignItems:'center', gap:6 }}><FA icon={faPhone} />CDR Analysis</span>,           children: selectedCaseId ? <CDRAnalysisView    caseId={selectedCaseId} headers={headers} /> : null },
-    { key: 'bank',            label: <span style={{ display:'flex', alignItems:'center', gap:6 }}><FA icon={faBuilding} />Bank Analysis</span>,       children: selectedCaseId ? <BankAnalysisView   caseId={selectedCaseId} headers={headers} /> : null },
-    { key: 'leads',           label: <span style={{ display:'flex', alignItems:'center', gap:6 }}><FA icon={faRocket} />AI Leads</span>,              children: selectedCaseId ? <LeadsView          caseId={selectedCaseId} headers={headers} /> : null },
-    { key: 'contradictions',  label: <span style={{ display:'flex', alignItems:'center', gap:6 }}><FA icon={faTriangleExclamation} />Contradictions</span>, children: selectedCaseId ? <ContradictionsView caseId={selectedCaseId} headers={headers} /> : null },
-    { key: 'insights',        label: <span style={{ display:'flex', alignItems:'center', gap:6 }}><FA icon={faLightbulb} />AI Insights</span>,        children: selectedCaseId ? <InsightsView       caseId={selectedCaseId} headers={headers} /> : null },
+    { key: 'insights', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FA icon={faLightbulb} />AI Insights</span>, children: selectedCaseId ? <InsightsView caseId={selectedCaseId} headers={headers} /> : null },
+    { key: 'timeline', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FA icon={faClock} />Timeline</span>, children: selectedCaseId ? <TimelineView caseId={selectedCaseId} headers={headers} caseData={selectedCase} /> : null },
+    { key: 'graph', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FA icon={faShareNodes} />Knowledge Graph</span>, children: selectedCaseId ? <KnowledgeGraphView caseId={selectedCaseId} headers={headers} caseData={selectedCase} /> : null },
+    { key: 'cdr', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FA icon={faPhone} />CDR Analysis</span>, children: selectedCaseId ? <CDRAnalysisView caseId={selectedCaseId} headers={headers} /> : null },
+    { key: 'bank', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FA icon={faBuilding} />Bank Analysis</span>, children: selectedCaseId ? <BankAnalysisView caseId={selectedCaseId} headers={headers} /> : null },
+    { key: 'leads', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FA icon={faRocket} />AI Leads</span>, children: selectedCaseId ? <LeadsView caseId={selectedCaseId} headers={headers} /> : null },
+    { key: 'contradictions', label: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FA icon={faTriangleExclamation} />Contradictions</span>, children: selectedCaseId ? <ContradictionsView caseId={selectedCaseId} headers={headers} /> : null },
   ];
 
   /* ── Outer wrapper ───────────────────────────────────────────────────── */
@@ -222,7 +324,7 @@ export default function AnalysisPage() {
       <div style={{
         overflow: 'hidden',
         maxHeight: headerCollapsed ? 0 : 400,
-        opacity:   headerCollapsed ? 0 : 1,
+        opacity: headerCollapsed ? 0 : 1,
         transition: 'max-height 0.35s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease',
         pointerEvents: headerCollapsed ? 'none' : 'auto',
       }}>
@@ -277,6 +379,11 @@ export default function AnalysisPage() {
                   <Option key={c.id} value={c.id}>[{c.case_type.toUpperCase()}] {c.title} — {c.status}</Option>
                 ))}
               </Select>
+              <Tooltip title="Create a fresh empty case to test analysis">
+                <Button type="primary" size="large" icon={<FA icon={faPlus} />} onClick={() => setCreateModalOpen(true)} style={{ background: 'var(--accent)', borderColor: 'var(--accent)' }}>
+                  New Case
+                </Button>
+              </Tooltip>
               {selectedCase && (
                 <Space wrap size={5}>
                   <Tag color={typeColor(selectedCase.case_type)} style={{ fontSize: 12, padding: '2px 9px' }}>
@@ -285,7 +392,15 @@ export default function AnalysisPage() {
                   <Tag color={statusColor(selectedCase.status)} style={{ fontSize: 12, padding: '2px 9px' }}>
                     {selectedCase.status.toUpperCase()}
                   </Tag>
-                  {selectedCase.offense_section && <code style={{ fontSize: 12 }}>{selectedCase.offense_section}</code>}
+                  <Tooltip title="Delete this case">
+                    <Button 
+                      type="text" 
+                      size="small" 
+                      danger 
+                      icon={<FA icon={faTrash} />} 
+                      onClick={handleDeleteCase}
+                    />
+                  </Tooltip>
                 </Space>
               )}
             </div>
@@ -293,11 +408,11 @@ export default function AnalysisPage() {
             {/* Meta strip - Clean simple design */}
             {selectedCase && (
               <div style={{ paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', flexWrap: 'wrap', gap: '12px 24px', fontSize: 13, color: 'var(--text)' }}>
-                  <span><strong>FIR:</strong> {selectedCase.case_type === 'fir' ? (selectedCase.fir_number || selectedCase.id.replace('case-', 'FIR-').toUpperCase()) : (selectedCase.complaint_number || selectedCase.id.replace('case-', 'CMP-').toUpperCase())}</span>
-                  <span><strong>Date:</strong> {selectedCase.registered_at ? new Date(selectedCase.registered_at).toLocaleDateString() : '—'}</span>
-                  {selectedCase.offense_section && <span><strong>U/S:</strong> {selectedCase.offense_section}</span>}
-                  <span><strong>PS:</strong> {selectedCase.station_id ? selectedCase.station_id.replace('stn-', 'PS ').replace('hq', 'HQ') : 'PS 1'}</span>
-                  {selectedCase.io_name && <span><strong>IO:</strong> {selectedCase.io_name}</span>}
+                <span><strong>FIR:</strong> {selectedCase.case_type === 'fir' ? (selectedCase.fir_number || selectedCase.id.replace('case-', 'FIR-').toUpperCase()) : (selectedCase.complaint_number || selectedCase.id.replace('case-', 'CMP-').toUpperCase())}</span>
+                <span><strong>Date:</strong> {selectedCase.registered_at ? new Date(selectedCase.registered_at).toLocaleDateString() : '—'}</span>
+                {selectedCase.offense_section && <span><strong>U/S:</strong> {selectedCase.offense_section}</span>}
+                <span><strong>PS:</strong> {selectedCase.station_id ? selectedCase.station_id.replace('stn-', 'PS ').replace('hq', 'HQ') : 'PS 1'}</span>
+                {selectedCase.io_name && <span><strong>IO:</strong> {selectedCase.io_name}</span>}
               </div>
             )}
 
@@ -320,6 +435,8 @@ export default function AnalysisPage() {
           isFullscreen={isFullscreen}
           onToggleFullscreen={toggleFullscreen}
           onExpand={() => setHeaderCollapsed(false)}
+          onCreateCase={() => setCreateModalOpen(true)}
+          onDeleteCase={handleDeleteCase}
         />
       )}
 
@@ -357,7 +474,7 @@ export default function AnalysisPage() {
             items={tabItems.map(item => ({
               ...item,
               children: (
-                <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', position: 'relative' }}>
+                <div style={{ height: '100%', overflow: 'auto', position: 'relative' }}>
                   {item.children}
                 </div>
               ),
@@ -365,6 +482,56 @@ export default function AnalysisPage() {
           />
         )}
       </div>
+
+      <Modal
+        title={<Space><FA icon={faFolderOpen} /> Create New Case</Space>}
+        open={createModalOpen}
+        onCancel={() => { setCreateModalOpen(false); form.resetFields(); }}
+        footer={null}
+        width={500}
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleCreateCase}
+          initialValues={{ case_type: 'fir', status: 'open', io_id: 'usr-2', station_id: 'stn-1' }}
+        >
+          <Form.Item name="title" label="Case Title" rules={[{ required: true, message: 'Please enter case title' }]}>
+            <Input placeholder="e.g., Cyber Fraud - Rs 2 Lakh" />
+          </Form.Item>
+
+          <Form.Item name="case_type" label="Case Type" rules={[{ required: true }]}>
+            <Radio.Group>
+              <Radio value="fir"><Tag color="error">FIR</Tag></Radio>
+              <Radio value="complaint"><Tag color="warning">Complaint</Tag></Radio>
+            </Radio.Group>
+          </Form.Item>
+
+          <Form.Item name="status" label="Status">
+            <Select>
+              <Select.Option value="open">Open</Select.Option>
+              <Select.Option value="investigation">Under Investigation</Select.Option>
+              <Select.Option value="challan">Challan Filed</Select.Option>
+              <Select.Option value="closed">Closed</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item name="offense_section" label="Offense Section">
+            <Input placeholder="e.g., IPC 420, IT Act 66D" />
+          </Form.Item>
+
+          <Form.Item name="description" label="Description">
+            <Input.TextArea rows={3} placeholder="Brief description of the case..." />
+          </Form.Item>
+
+          <Form.Item>
+            <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+              <Button onClick={() => setCreateModalOpen(false)}>Cancel</Button>
+              <Button type="primary" htmlType="submit" loading={createLoading}>Create Case</Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
 
     </div>
   );

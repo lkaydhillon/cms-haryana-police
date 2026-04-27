@@ -2,7 +2,7 @@
    CMS Haryana Police — Global Design System  •  FORCED DARK THEME
    ═══════════════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap');
 
 /* ── Dark Theme (default) ─────────────────────────────────────────────────── */
 :root {
@@ -41,8 +41,8 @@
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4);
 
   /* Typography */
-  --sans:    'Inter', 'Segoe UI', system-ui, sans-serif;
-  --heading: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --sans:    'Inter', 'Noto Sans Devanagari', 'Segoe UI', system-ui, sans-serif;
+  --heading: 'Inter', 'Noto Sans Devanagari', 'Segoe UI', system-ui, sans-serif;
   --mono:    'JetBrains Mono', ui-monospace, Consolas, monospace;
 
   font: 14px/1.55 var(--sans);
@@ -57,52 +57,35 @@
   @media (max-width: 1024px) { font-size: 13px; }
 }
 
-<<<<<<< HEAD
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
-
-  input:-webkit-autofill,
-  input:-webkit-autofill:hover, 
-  input:-webkit-autofill:focus, 
-  input:-webkit-autofill:active{
-      -webkit-box-shadow: 0 0 0 30px #141414 inset !important;
-      -webkit-text-fill-color: #f3f4f6 !important;
-      transition: background-color 5000s ease-in-out 0s;
-  }
-
-  /* Global dark loading message for Ant Design */
-  .ant-message-notice-content {
-    background-color: var(--bg) !important;
-    color: rgba(255, 255, 255, 0.85) !important;
-    border: 1px solid var(--border) !important;
-  }
-  .anticon-loading {
-    color: #1890ff !important;
-  }
-  .ant-message-custom-content {
-    color: rgba(255, 255, 255, 0.85) !important;
-  }
-}
-=======
 /* ── Reset ────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
->>>>>>> origin/main
+
+#social .button-icon {
+  filter: invert(1) brightness(2);
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px #141414 inset !important;
+  -webkit-text-fill-color: #f3f4f6 !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+.ant-message-notice-content {
+  background-color: var(--bg) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  border: 1px solid var(--border) !important;
+}
+
+.anticon-loading {
+  color: var(--accent) !important;
+}
+
+.ant-message-custom-content {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
 
 body {
   margin: 0;

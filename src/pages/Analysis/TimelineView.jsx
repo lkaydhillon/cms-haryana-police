@@ -1,84 +1,60 @@
 import React, { useState, useEffect } from 'react';
-import { Timeline, Spin, Typography, Card, Space, Empty, Tag, Modal, Drawer, Button, Divider, Alert } from 'antd';
+import { Timeline, Spin, Typography, Card, Space, Empty, Tag, Drawer, Button, Divider, Alert, List, Badge } from 'antd';
 import {
-    FileTextOutlined,
-    CommentOutlined,
-    SearchOutlined,
-    AlertOutlined,
-    HomeOutlined,
-    SafetyOutlined,
-    PushpinOutlined,
-    CalendarOutlined,
-    EyeOutlined,
-    FileDoneOutlined,
-    CameraOutlined,
-    AuditOutlined,
-    FileExclamationOutlined,
-    LinkOutlined
+    FileTextOutlined, CommentOutlined, SearchOutlined, AlertOutlined,
+    HomeOutlined, SafetyOutlined, PushpinOutlined, CalendarOutlined,
+    EyeOutlined, FileDoneOutlined, CameraOutlined, AuditOutlined,
+    FileExclamationOutlined, LinkOutlined, PaperClipOutlined,
+    DownloadOutlined, FilePdfOutlined, FileWordOutlined, FileExcelOutlined,
+    FileUnknownOutlined,
 } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 
+// ── Category configuration ────────────────────────────────────────────────────
 const CATEGORY_CONFIG = {
     registration: {
-        color: 'green',
-        icon: <FileTextOutlined style={{ fontSize: '16px' }} />,
-        label: 'FIR / Complaint Registration',
-        docIcon: <FileDoneOutlined />,
-        docLabel: 'FIR Copy / Complaint',
-        description: 'Original FIR or complaint document filed at the police station.'
+        color: 'green', icon: <FileTextOutlined style={{ fontSize: 16 }} />,
+        docIcon: <FileDoneOutlined />, docLabel: 'FIR Copy / Complaint',
     },
     statement: {
-        color: 'blue',
-        icon: <CommentOutlined style={{ fontSize: '16px' }} />,
-        label: 'Statement Recorded',
-        docIcon: <AuditOutlined />,
-        docLabel: 'Statement',
-        description: 'Recorded statement of the person as documented by the IO.'
+        color: 'blue', icon: <CommentOutlined style={{ fontSize: 16 }} />,
+        docIcon: <AuditOutlined />, docLabel: 'Statement',
     },
     evidence: {
-        color: 'orange',
-        icon: <SearchOutlined style={{ fontSize: '16px' }} />,
-        label: 'Evidence / Investigation',
-        docIcon: <CameraOutlined />,
-        docLabel: 'Evidence Record',
-        description: 'Physical or digital evidence collected during investigation.'
+        color: 'orange', icon: <SearchOutlined style={{ fontSize: 16 }} />,
+        docIcon: <CameraOutlined />, docLabel: 'Evidence Record',
     },
     arrest: {
-        color: 'red',
-        icon: <AlertOutlined style={{ fontSize: '16px' }} />,
-        label: 'Arrest',
-        docIcon: <FileExclamationOutlined />,
-        docLabel: 'Arrest Memo',
-        description: 'Formal arrest memo and related documentation.'
+        color: 'red', icon: <AlertOutlined style={{ fontSize: 16 }} />,
+        docIcon: <FileExclamationOutlined />, docLabel: 'Arrest Memo',
     },
     raid: {
-        color: 'purple',
-        icon: <HomeOutlined style={{ fontSize: '16px' }} />,
-        label: 'Raid Conducted',
-        docIcon: <HomeOutlined />,
-        docLabel: 'Raid Report',
-        description: 'Raid report documenting the search and seizure operation.'
+        color: 'purple', icon: <HomeOutlined style={{ fontSize: 16 }} />,
+        docIcon: <HomeOutlined />, docLabel: 'Raid Report',
     },
     challan: {
-        color: 'magenta',
-        icon: <SafetyOutlined style={{ fontSize: '16px' }} />,
-        label: 'Challan / Court Filing',
-        docIcon: <FileDoneOutlined />,
-        docLabel: 'Challan Documents',
-        description: 'Challan submitted to court for further proceedings.'
+        color: 'magenta', icon: <SafetyOutlined style={{ fontSize: 16 }} />,
+        docIcon: <FileDoneOutlined />, docLabel: 'Challan Documents',
+    },
+    document_upload: {
+        color: 'cyan', icon: <PaperClipOutlined style={{ fontSize: 16 }} />,
+        docIcon: <FileTextOutlined />, docLabel: 'Original File',
     },
 };
 
 const DEFAULT_CONFIG = {
-    color: 'gray',
-    icon: <PushpinOutlined style={{ fontSize: '16px' }} />,
-    label: 'Event',
-    docIcon: <FileTextOutlined />,
-    docLabel: 'Related Document',
-    description: 'Case event recorded by the investigating officer.'
+    color: 'gray', icon: <PushpinOutlined style={{ fontSize: 16 }} />,
+    docIcon: <FileTextOutlined />, docLabel: 'Related Document',
 };
 
+const COLOR_MAP = {
+    green: '#52c41a', blue: '#1890ff', red: '#ff4d4f',
+    orange: '#fa8c16', purple: '#722ed1', magenta: '#eb2f96',
+    cyan: '#13c2c2', gray: '#8c8c8c',
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function formatDate(dt) {
     return new Date(dt).toLocaleString('en-IN', {
         day: '2-digit', month: 'short', year: 'numeric',
@@ -86,224 +62,210 @@ function formatDate(dt) {
     });
 }
 
-function formatDateShort(dt) {
-    return new Date(dt).toLocaleDateString('en-IN', {
-        day: '2-digit', month: 'short', year: 'numeric',
-    });
+function formatFileSize(bytes) {
+    if (!bytes) return '—';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Simulated document that would be loaded from DB (matching event category to doc type)
-function buildEventDocument(evt, caseData) {
-    const cat = evt.category;
-    const docDateStr = formatDateShort(evt.event_time);
-
-    if (cat === 'registration') {
-        return {
-            type: caseData?.case_type === 'fir' ? 'FIR' : 'Complaint',
-            content: `**${caseData?.case_type === 'fir' ? 'First Information Report' : 'COMPLAINT'}**
-
-**${caseData?.case_type === 'fir' ? 'FIR' : 'Complaint'} No.:** ${caseData?.id?.replace('case-', caseData?.case_type === 'fir' ? 'FIR-' : 'CMP-')?.toUpperCase() || 'Pending'}
-**Date of Filing:** ${docDateStr}
-**Police Station:** ${evt.location || 'PS Sector 14'}
-**Officer:** ${evt.officer_name || 'IO'}
-
-**Description of Incident:**
-${caseData?.description || evt.description}
-
-**Section of Law:** ${caseData?.offense_section || 'Under Investigation'}
-
-*This document was registered at ${evt.location || 'the police station'} on ${docDateStr}.*`,
-            isLinked: true
-        };
-    }
-    if (cat === 'statement') {
-        return {
-            type: 'Statement',
-            content: `**RECORDED STATEMENT**
-
-**Date:** ${docDateStr}
-**Location:** ${evt.location || 'Police Station'}
-**Recorded by:** ${evt.officer_name || 'IO'}
-
-**Statement:**
-${evt.description}
-
-*Statement recorded in accordance with CrPC Section 161. The deponent confirmed the contents to be true to the best of their knowledge.*`,
-            isLinked: true
-        };
-    }
-    if (cat === 'arrest') {
-        return {
-            type: 'Arrest Memo',
-            content: `**ARREST MEMO**
-
-**Date of Arrest:** ${docDateStr}
-**Location:** ${evt.location || 'Location'}
-**Arresting Officer:** ${evt.officer_name || 'IO'}
-
-**Details:**
-${evt.description}
-
-**Rights Read:** Yes
-**Medical Examination:** To be conducted within 24 hours
-**Producing Authority:** ${evt.location ? 'Local Magistrate' : 'Magistrate Court'}
-
-*Arrest conducted in accordance with CrPC provisions. Accused informed of grounds of arrest.*`,
-            isLinked: true
-        };
-    }
-    if (cat === 'evidence') {
-        return {
-            type: 'Evidence Record',
-            content: `**EVIDENCE / SEIZURE NOTE**
-
-**Date:** ${docDateStr}
-**Location of Recovery:** ${evt.location || 'Scene'}
-**Officer:** ${evt.officer_name || 'IO'}
-
-**Evidence Details:**
-${evt.description}
-
-*Evidence collected as per proper procedure. Seizure memo prepared. Chain of custody maintained.*`,
-            isLinked: true
-        };
-    }
-    if (cat === 'raid') {
-        return {
-            type: 'Raid Report',
-            content: `**RAID / SEARCH REPORT**
-
-**Date of Raid:** ${docDateStr}
-**Location:** ${evt.location || 'Premises'}
-**Officer in Charge:** ${evt.officer_name || 'IO'}
-
-**Raid Details:**
-${evt.description}
-
-*Raid conducted under warrant / special powers. Panchnama prepared.*`,
-            isLinked: true
-        };
-    }
-    if (cat === 'challan') {
-        return {
-            type: 'Challan',
-            content: `**CHALLAN / CHARGESHEET**
-
-**Date Filed:** ${docDateStr}
-**Court:** ${evt.location || 'District Court'}
-**Filed by:** ${evt.officer_name || 'IO'}
-
-**Details:**
-${evt.description}
-
-*Challan submitted under Section 173 CrPC. All evidence and witness list attached.*`,
-            isLinked: true
-        };
-    }
-    return {
-        type: 'Case Note',
-        content: `**CASE NOTE**\n\n**Date:** ${docDateStr}\n**Location:** ${evt.location || '—'}\n**Officer:** ${evt.officer_name || 'IO'}\n\n${evt.description}`,
-        isLinked: false
-    };
+function getFileIcon(fileName) {
+    if (!fileName) return <FileUnknownOutlined />;
+    const ext = fileName.split('.').pop().toLowerCase();
+    if (ext === 'pdf') return <FilePdfOutlined style={{ color: '#e74c3c' }} />;
+    if (['doc', 'docx'].includes(ext)) return <FileWordOutlined style={{ color: '#2b579a' }} />;
+    if (['xls', 'xlsx', 'csv'].includes(ext)) return <FileExcelOutlined style={{ color: '#217346' }} />;
+    return <FileUnknownOutlined />;
 }
 
-function DocumentDrawer({ open, event, caseData, onClose }) {
+// ── Real Document Drawer ───────────────────────────────────────────────────────
+// Fetches actual file content from API — PDFs render in iframe, text in viewer
+function DocumentDrawer({ open, event, documents, headers, caseId, onClose }) {
+    const [fullDoc, setFullDoc] = useState(null);
+    const [loadingDoc, setLoadingDoc] = useState(false);
+    const [docError, setDocError] = useState(null);
+
+    useEffect(() => {
+        if (!open || !event) { setFullDoc(null); setDocError(null); return; }
+
+        let docId = null;
+
+        if (event.record_type === 'document_upload' && event.document?.id) {
+            // Direct link: document_upload events carry the document id
+            docId = event.document.id;
+        } else if (documents?.length > 0) {
+            // AI-extracted event: find the uploaded doc whose timestamp is closest to this event
+            const sorted = [...documents].sort((a, b) =>
+                Math.abs(new Date(a.uploaded_at) - new Date(event.event_time)) -
+                Math.abs(new Date(b.uploaded_at) - new Date(event.event_time))
+            );
+            docId = sorted[0]?.id;
+        }
+
+        if (!docId || !caseId) {
+            setDocError('No source document linked to this event.');
+            return;
+        }
+
+        setLoadingDoc(true);
+        setDocError(null);
+        setFullDoc(null);
+
+        fetch(`/api/analysis/cases/${caseId}/documents/${docId}`, { headers })
+            .then(r => { if (!r.ok) throw new Error('Document not found (404)'); return r.json(); })
+            .then(d => { setFullDoc(d); setLoadingDoc(false); })
+            .catch(e => { setDocError(e.message); setLoadingDoc(false); });
+    }, [open, event?.id, caseId]);
+
     if (!event) return null;
-    const cfg = CATEGORY_CONFIG[event.category] || DEFAULT_CONFIG;
-    const doc = buildEventDocument(event, caseData);
 
-    const lines = doc.content.split('\n');
+    const cfg = CATEGORY_CONFIG[event.category] || DEFAULT_CONFIG;
+    const isPDF = fullDoc?.mime_type === 'application/pdf' ||
+        fullDoc?.file_name?.toLowerCase().endsWith('.pdf');
 
     return (
         <Drawer
             open={open}
             onClose={onClose}
-            width={520}
+            width={780}
             zIndex={2000}
+            styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column', height: '100%' } }}
             title={
                 <Space>
-                    <span style={{ color: cfg.color === 'green' ? '#52c41a' : cfg.color === 'blue' ? '#1890ff' : cfg.color === 'red' ? '#ff4d4f' : cfg.color === 'orange' ? '#fa8c16' : cfg.color === 'purple' ? '#722ed1' : cfg.color === 'magenta' ? '#eb2f96' : '#8c8c8c' }}>
-                        {cfg.docIcon}
-                    </span>
-                    <span>{doc.type}</span>
-                    {doc.isLinked && <Tag color="success" style={{ margin: 0 }}><LinkOutlined /> Verified</Tag>}
+                    <span style={{ color: COLOR_MAP[cfg.color] }}>{cfg.docIcon}</span>
+                    <span>{fullDoc?.doc_type || fullDoc?.file_name || cfg.docLabel}</span>
+                    {fullDoc && (
+                        <Tag color="success" style={{ margin: 0 }}>
+                            <LinkOutlined /> Verified Source
+                        </Tag>
+                    )}
                 </Space>
             }
-            extra={<Button onClick={onClose} size="small">Close</Button>}
+            extra={
+                <Space>
+                    {fullDoc?.file_path && (
+                        <a href={fullDoc.file_path} target="_blank" rel="noopener noreferrer"
+                            download={fullDoc.file_name}>
+                            <Button icon={<DownloadOutlined />} size="small">Download</Button>
+                        </a>
+                    )}
+                    <Button onClick={onClose} size="small">Close</Button>
+                </Space>
+            }
         >
-            <div style={{ marginBottom: 16 }}>
-                <Tag color={`${cfg.color}`} style={{ textTransform: 'uppercase', marginBottom: 12 }}>{event.category}</Tag>
-                <div style={{ fontSize: 12, color: 'var(--text)', opacity: 0.7, marginBottom: 4 }}>
-                    <CalendarOutlined /> {formatDate(event.event_time)}
-                    {event.location && <span style={{ marginLeft: 12 }}><HomeOutlined /> {event.location}</span>}
+            {/* ── Event meta bar ── */}
+            <div style={{
+                padding: '10px 20px', borderBottom: '1px solid var(--border)',
+                background: 'var(--code-bg)', flexShrink: 0,
+            }}>
+                <Tag color={cfg.color} style={{ textTransform: 'uppercase', marginBottom: 6 }}>
+                    {event.category}
+                </Tag>
+                <div style={{ fontSize: 12, color: 'var(--text-dim)', display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                    <span><CalendarOutlined /> {formatDate(event.event_time)}</span>
+                    {event.location && <span><HomeOutlined /> {event.location}</span>}
+                    {event.officer_name && <span><SafetyOutlined /> {event.officer_name}</span>}
                 </div>
-                {event.officer_name && (
-                    <div style={{ fontSize: 12, color: 'var(--text)', opacity: 0.7 }}>
-                        <SafetyOutlined /> {event.officer_name}
+                {event.description && (
+                    <div style={{ marginTop: 6, fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
+                        {event.description}
                     </div>
                 )}
             </div>
 
-            <Divider style={{ margin: '12px 0' }} />
-
-            <div style={{
-                background: '#fcfcf5',
-                backgroundImage: 'url("https://www.transparenttextures.com/patterns/cream-paper.png")',
-                boxShadow: '0 4px 8px rgba(0,0,0,0.1), inset 0 0 50px rgba(0,0,0,0.03)',
-                border: '1px solid #e0dbce',
-                borderRadius: 2,
-                padding: '40px 30px',
-                fontFamily: '"Courier New", Courier, monospace',
-                lineHeight: 1.6,
-                fontSize: 14,
-                color: '#2b2b2b',
-                minHeight: '600px',
-                transform: 'rotate(-0.5deg)',
-                filter: 'sepia(0.2) contrast(1.05) brightness(0.98)',
-            }}>
-                {lines.map((line, i) => {
-                    if (line.startsWith('**') && line.endsWith('**') && line.length > 4) {
-                        return <div key={i} style={{ fontWeight: 700, fontSize: 16, marginBottom: 12, textTransform: 'uppercase', textDecoration: 'underline' }}>{line.replace(/\*\*/g, '')}</div>;
-                    }
-                    const boldParts = line.split(/(\*\*[^*]+\*\*)/g);
-                    if (boldParts.length > 1) {
-                        return (
-                            <div key={i} style={{ marginBottom: 6 }}>
-                                {boldParts.map((part, j) => {
-                                    if (part.startsWith('**') && part.endsWith('**')) {
-                                        return <strong key={j} style={{ fontWeight: 800 }}>{part.slice(2, -2)}</strong>;
-                                    }
-                                    return <span key={j}>{part}</span>;
-                                })}
+            {/* ── Document viewer ── */}
+            <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                {loadingDoc ? (
+                    <div style={{ textAlign: 'center', padding: '80px 0' }}>
+                        <Spin size="large" />
+                        <div style={{ marginTop: 14, color: 'var(--text-dim)', fontSize: 13 }}>
+                            Loading original document...
+                        </div>
+                    </div>
+                ) : docError ? (
+                    <div style={{ padding: 24 }}>
+                        <Alert type="warning" showIcon message="Document Not Found"
+                            description={docError} />
+                    </div>
+                ) : isPDF && fullDoc?.file_path ? (
+                    <iframe
+                        src={fullDoc.file_path}
+                        style={{ width: '100%', flex: 1, border: 'none', minHeight: '72vh' }}
+                        title={fullDoc.file_name}
+                    />
+                ) : fullDoc?.content_text ? (
+                    <div style={{
+                        flex: 1, overflowY: 'auto',
+                        padding: '28px 32px',
+                        background: '#fcfcf9',
+                        fontFamily: "'Noto Sans Devanagari', 'Courier New', Courier, monospace",
+                        fontSize: 14, lineHeight: 1.8,
+                        whiteSpace: 'pre-wrap', color: '#1a1a1a',
+                        wordBreak: 'break-word',
+                    }}>
+                        {fullDoc.content_text}
+                    </div>
+                ) : fullDoc?.file_path ? (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                        {/* For images, show inline */}
+                        {fullDoc.mime_type?.startsWith('image/') ? (
+                            <div style={{ flex: 1, overflow: 'auto', padding: 16, background: '#000', textAlign: 'center' }}>
+                                <img src={fullDoc.file_path} alt={fullDoc.file_name} style={{ maxWidth: '100%', height: 'auto' }} />
                             </div>
-                        );
-                    }
-                    if (line.trim() === '') return <div key={i} style={{ height: 16 }}></div>;
-                    if (line.startsWith('*') && line.endsWith('*')) {
-                        return <div key={i} style={{ fontStyle: 'italic', color: '#4a4a4a', fontSize: 12, marginTop: 24, borderTop: '1px dashed #ccc', paddingTop: 8 }}>{line.slice(1, -1)}</div>;
-                    }
-                    return <div key={i} style={{ marginBottom: 6 }}>{line}</div>;
-                })}
+                        ) : fullDoc.mime_type?.includes('word') || fullDoc.mime_type?.includes('document') ? (
+                            <div style={{ padding: 24 }}>
+                                <Alert type="info" showIcon message="Word Document"
+                                    description="Word documents cannot be previewed inline. Please download to view." />
+                            </div>
+                        ) : fullDoc.mime_type?.includes('excel') || fullDoc.mime_type?.includes('sheet') ? (
+                            <div style={{ padding: 24 }}>
+                                <Alert type="info" showIcon message="Spreadsheet"
+                                    description="Excel files cannot be previewed inline. Please download to view." />
+                            </div>
+                        ) : (
+                            /* Default: show info with download option */
+                            <div style={{ padding: 24 }}>
+                                <Alert type="info" showIcon message="Preview Not Available"
+                                    description="This file type cannot be previewed. Use Download button to view the file." />
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div style={{ padding: 24 }}>
+                        <Alert type="warning" showIcon message="No File Attached"
+                            description="No source file found for this document." />
+                    </div>
+                )}
             </div>
 
-            {doc.isLinked && (
-                <Alert
-                    style={{ marginTop: 16, fontSize: 12 }}
-                    type="success"
-                    showIcon
-                    message="Verified Source"
-                    description={`This ${doc.type} is linked to the case ${caseData?.case_type === 'fir' ? 'FIR' : 'Complaint'} file. Document trail maintained for verifiability.`}
-                />
+            {/* ── Footer metadata ── */}
+            {fullDoc && (
+                <div style={{
+                    padding: '7px 20px', borderTop: '1px solid var(--border)',
+                    background: 'var(--code-bg)', fontSize: 11, color: 'var(--text-dim)',
+                    display: 'flex', gap: 20, flexWrap: 'wrap', flexShrink: 0,
+                }}>
+                    <span>📎 {fullDoc.file_name || '—'}</span>
+                    <span>📏 {formatFileSize(fullDoc.file_size)}</span>
+                    <span>📋 {fullDoc.doc_type}</span>
+                    <span>🕐 {formatDate(fullDoc.uploaded_at)}</span>
+                </div>
             )}
         </Drawer>
     );
 }
 
-export default function TimelineView({ caseId, headers, caseData }) {
+// ── Main Component ────────────────────────────────────────────────────────────
+export default function TimelineView({ caseId, headers }) {
     const [events, setEvents] = useState([]);
+    const [documents, setDocuments] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [docsLoading, setDocsLoading] = useState(true);
     const [selectedEvent, setSelectedEvent] = useState(null);
     const [drawerOpen, setDrawerOpen] = useState(false);
+    // For "View Original" from the documents list below the timeline
+    const [docDrawerOpen, setDocDrawerOpen] = useState(false);
+    const [selectedDoc, setSelectedDoc] = useState(null);
 
     useEffect(() => {
         setLoading(true);
@@ -311,11 +273,28 @@ export default function TimelineView({ caseId, headers, caseData }) {
             .then(r => r.json())
             .then(data => { setEvents(data); setLoading(false); })
             .catch(() => setLoading(false));
+
+        setDocsLoading(true);
+        fetch(`/api/analysis/cases/${caseId}/documents`, { headers })
+            .then(r => r.json())
+            .then(data => { setDocuments(data?.documents || data || []); setDocsLoading(false); })
+            .catch(() => setDocsLoading(false));
     }, [caseId]);
 
     const handleEventClick = (evt) => {
         setSelectedEvent(evt);
         setDrawerOpen(true);
+    };
+
+    const handleViewOriginal = (doc) => {
+        // Open immediately so user sees the drawer (PDF will render via file_path)
+        setSelectedDoc(doc);
+        setDocDrawerOpen(true);
+        // Fetch the full document record which includes content_text for non-PDFs
+        fetch(`/api/analysis/cases/${caseId}/documents/${doc.id}`, { headers })
+            .then(r => r.json())
+            .then(full => setSelectedDoc(full))
+            .catch(() => {}); // silently fall back to the partial doc already set
     };
 
     if (loading) return (
@@ -327,26 +306,39 @@ export default function TimelineView({ caseId, headers, caseData }) {
 
     if (events.length === 0) return (
         <div style={{ padding: '80px 0' }}>
-            <Empty description="No events recorded for this case yet." />
+            <Empty 
+                description={
+                    <div>
+                        <div style={{ marginBottom: 8, fontWeight: 500 }}>No documents uploaded yet</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+                            Upload FIR, complaint, statements, evidence documents to build timeline.
+                        </div>
+                    </div>
+                }
+            />
         </div>
     );
 
     return (
         <div style={{ padding: '24px 32px' }}>
+            {/* Header */}
             <div style={{ marginBottom: 20, borderBottom: '1px solid var(--border)', paddingBottom: 14 }}>
                 <Title level={4} style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                     <CalendarOutlined style={{ color: '#1890ff' }} />
                     Case Timeline
-                    <Text type="secondary" style={{ fontWeight: 'normal', fontSize: '14px' }}>({events.length} events)</Text>
+                    <Text type="secondary" style={{ fontWeight: 'normal', fontSize: 14 }}>
+                        ({events.filter(evt => evt.document?.file_path).length} files)
+                    </Text>
                 </Title>
                 <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
-                    <EyeOutlined /> Click any event to view the source document — ensuring full verifiability of the investigation trail.
+                    <EyeOutlined /> Click to view or download original file.
                 </Text>
             </div>
 
+            {/* Timeline - Show only original uploaded documents (ones with file_path) */}
             <div style={{ paddingLeft: 16 }}>
                 <Timeline mode="left">
-                    {events.map((evt) => {
+                    {events.filter(evt => evt.record_type === 'document_upload' && evt.document?.file_path).map((evt) => {
                         const cfg = CATEGORY_CONFIG[evt.category] || DEFAULT_CONFIG;
                         return (
                             <Timeline.Item
@@ -363,29 +355,48 @@ export default function TimelineView({ caseId, headers, caseData }) {
                                     style={{
                                         background: 'var(--code-bg)',
                                         border: '1px solid var(--border)',
-                                        boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
-                                        marginTop: -6,
-                                        cursor: 'pointer',
+                                        marginTop: -6, cursor: 'pointer',
                                         transition: 'all 0.2s',
                                     }}
                                 >
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                        <Tag color={cfg.color} style={{ textTransform: 'uppercase', marginBottom: 8 }}>{evt.category}</Tag>
+                                        <Tag color={cfg.color} style={{ textTransform: 'uppercase', marginBottom: 8 }}>
+                                            {evt.category}
+                                        </Tag>
                                         <Button
-                                            type="link"
+                                            type="primary"
                                             size="small"
                                             icon={<EyeOutlined />}
-                                            style={{ padding: '0 4px', height: 'auto', fontSize: 12 }}
+                                            style={{ fontSize: 11, borderRadius: 4 }}
                                         >
-                                            View Document
+                                            View Original
                                         </Button>
                                     </div>
-                                    <Paragraph style={{ marginBottom: 8 }}>{evt.description}</Paragraph>
-
+                                    <Paragraph 
+                                        style={{ 
+                                            marginBottom: 6, 
+                                            color: '#e2e8f0',
+                                            fontFamily: "'Noto Sans Devanagari', 'Segoe UI', sans-serif",
+                                            fontSize: 14,
+                                            lineHeight: 1.6,
+                                            wordBreak: 'break-word',
+                                            whiteSpace: 'pre-wrap'
+                                        }}
+                                    >
+                                        {evt.description}
+                                    </Paragraph>
                                     {(evt.officer_name || evt.location) && (
                                         <Space size="large" style={{ marginTop: 4 }}>
-                                            {evt.officer_name && <Text type="secondary" style={{ fontSize: 12 }}><SafetyOutlined /> {evt.officer_name}</Text>}
-                                            {evt.location && <Text type="secondary" style={{ fontSize: 12 }}><HomeOutlined /> {evt.location}</Text>}
+                                            {evt.officer_name && (
+                                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                                    <SafetyOutlined /> {evt.officer_name}
+                                                </Text>
+                                            )}
+                                            {evt.location && (
+                                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                                    <HomeOutlined /> {evt.location}
+                                                </Text>
+                                            )}
                                         </Space>
                                     )}
                                 </Card>
@@ -395,12 +406,120 @@ export default function TimelineView({ caseId, headers, caseData }) {
                 </Timeline>
             </div>
 
+            {/* Uploaded Documents list */}
+            <Divider orientation="left" style={{ marginTop: 32, marginBottom: 16 }}>
+                <Space>
+                    <PaperClipOutlined />
+                    <Text strong>Uploaded Documents</Text>
+                    <Badge count={documents.length} showZero style={{ marginLeft: 8 }} />
+                </Space>
+            </Divider>
+
+            {docsLoading ? (
+                <Spin size="small" />
+            ) : documents.filter(doc => doc.file_path).length > 0 ? (
+                <List
+                    size="small"
+                    dataSource={documents.filter(doc => doc.file_path)}
+                    renderItem={doc => (
+                        <Card size="small" style={{ marginBottom: 8, background: 'var(--code-bg)', border: '1px solid var(--border)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Space>
+                                    {getFileIcon(doc.file_name)}
+                                    <div>
+                                        <Text strong style={{ fontSize: 13 }}>{doc.file_name || doc.doc_type}</Text>
+                                        <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                                            {doc.doc_type} · {formatFileSize(doc.file_size)} · {formatDate(doc.uploaded_at)}
+                                        </div>
+                                    </div>
+                                </Space>
+                                <Space>
+                                    <Button type="primary" size="small" icon={<EyeOutlined />}
+                                        onClick={() => handleViewOriginal(doc)}>
+                                        View Original
+                                    </Button>
+                                    {doc.file_path && (
+                                        <a href={doc.file_path} target="_blank" rel="noopener noreferrer" download>
+                                            <Button size="small" icon={<DownloadOutlined />}>Download</Button>
+                                        </a>
+                                    )}
+                                </Space>
+                            </div>
+                        </Card>
+                    )}
+                />
+            ) : (
+                <Empty description="No documents uploaded yet." image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            )}
+
+            {/* Timeline event → real document drawer */}
             <DocumentDrawer
                 open={drawerOpen}
                 event={selectedEvent}
-                caseData={caseData}
+                documents={documents}
+                headers={headers}
+                caseId={caseId}
                 onClose={() => { setDrawerOpen(false); setSelectedEvent(null); }}
             />
+
+            {/* "View Original" from documents list → reuse DocumentDrawer via a synthetic event */}
+            <Drawer
+                open={docDrawerOpen}
+                onClose={() => { setDocDrawerOpen(false); setSelectedDoc(null); }}
+                width={780}
+                title={
+                    <Space>
+                        {selectedDoc && getFileIcon(selectedDoc.file_name)}
+                        {selectedDoc?.file_name || 'View Document'}
+                        {selectedDoc && <Tag color="success" style={{ margin: 0 }}><LinkOutlined /> Verified Source</Tag>}
+                    </Space>
+                }
+                extra={
+                    <Space>
+                        {selectedDoc?.file_path && (
+                            <a href={selectedDoc.file_path} target="_blank" rel="noopener noreferrer" download>
+                                <Button icon={<DownloadOutlined />}>Download</Button>
+                            </a>
+                        )}
+                        <Button onClick={() => setDocDrawerOpen(false)}>Close</Button>
+                    </Space>
+                }
+                styles={{ body: { padding: 0 } }}
+            >
+                {selectedDoc?.mime_type === 'application/pdf' && selectedDoc?.file_path ? (
+                    <iframe
+                        src={selectedDoc.file_path}
+                        style={{ width: '100%', height: '80vh', border: 'none' }}
+                        title={selectedDoc.file_name}
+                    />
+                ) : selectedDoc?.content_text ? (
+                    <div style={{
+                        padding: '28px 32px', background: '#fcfcf9',
+                        fontFamily: '"Courier New", Courier, monospace',
+                        fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap',
+                        color: '#1a1a1a', maxHeight: '80vh', overflowY: 'auto',
+                    }}>
+                        {selectedDoc.content_text}
+                    </div>
+                ) : (
+                    <div style={{ padding: 24 }}>
+                        <Alert type="info" showIcon message="No Text Content"
+                            description="No extractable text. Download the file to view it." />
+                    </div>
+                )}
+                {selectedDoc && (
+                    <div style={{
+                        padding: '7px 20px', borderTop: '1px solid var(--border)',
+                        fontSize: 11, color: 'var(--text-dim)',
+                        display: 'flex', gap: 20, flexWrap: 'wrap',
+                    }}>
+                        <span>📎 {selectedDoc.file_name || '—'}</span>
+                        <span>📏 {formatFileSize(selectedDoc.file_size)}</span>
+                        <span>📋 {selectedDoc.doc_type}</span>
+                        <span>🕐 {formatDate(selectedDoc.uploaded_at)}</span>
+                    </div>
+                )}
+            </Drawer>
         </div>
     );
 }
