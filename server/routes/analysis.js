@@ -501,7 +501,13 @@ router.post('/cases/:id/scan', async (req, res) => {
     const docs = db.prepare('SELECT doc_type, content_text FROM case_documents WHERE case_id = ? ORDER BY uploaded_at DESC LIMIT 8').all(req.params.id);
     if (docs.length < 1) return res.json({ message: 'No documents to scan', contradictions: [] });
 
-    const result = await detectContradictionsAI(docs);
+    let result = { contradictions: [], method: 'not-run' };
+    try {
+      result = await detectContradictionsAI(docs);
+    } catch (err) {
+      console.warn('Contradiction scan failed:', err.message);
+      result = { contradictions: [], method: 'failed', error: err.message };
+    }
     const contradictions = result.contradictions || [];
 
     if (contradictions.length > 0) {
@@ -516,7 +522,13 @@ router.post('/cases/:id/scan', async (req, res) => {
       });
     }
 
-    const freshLeads = await refreshLeads(req.params.id);
+    let freshLeads = { leads: [], method: 'not-run' };
+    try {
+      freshLeads = await refreshLeads(req.params.id);
+    } catch (err) {
+      console.warn('Lead refresh failed during scan:', err.message);
+      freshLeads = { leads: [], method: 'failed', error: err.message };
+    }
     if (freshLeads.leads?.length) {
       const insert = db.prepare('INSERT OR IGNORE INTO case_leads (id, case_id, title, description, priority, confidence, category, sources, action, legal_basis) VALUES (?,?,?,?,?,?,?,?,?,?)');
       freshLeads.leads.forEach(l => {
@@ -529,7 +541,13 @@ router.post('/cases/:id/scan', async (req, res) => {
       });
     }
 
-    res.json({ contradictions, newLeads: freshLeads.leads?.length || 0, method: result.method });
+    res.json({
+      contradictions,
+      newLeads: freshLeads.leads?.length || 0,
+      method: result.method,
+      leadMethod: freshLeads.method,
+      warnings: [result.error, freshLeads.error].filter(Boolean),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

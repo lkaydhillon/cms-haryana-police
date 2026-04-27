@@ -6,24 +6,92 @@
 
 import { createRequire } from 'module';
 import path from 'path';
+import { extractTextWithGemini } from './aiEngine.js';
 
 const require = createRequire(import.meta.url);
 
+function isUsableExtractedText(text) {
+  const trimmed = String(text || '').trim();
+  if (trimmed.length < 30) return false;
+
+  const readableChars = Array.from(trimmed).filter((char) => {
+    const code = char.codePointAt(0);
+    return /[A-Za-z0-9]/.test(char) || (code >= 0x0900 && code <= 0x097F);
+  }).length;
+  const replacementChars = (trimmed.match(/[�□■]/g) || []).length;
+  const readableRatio = readableChars / Math.max(trimmed.length, 1);
+
+  return readableRatio > 0.25 && replacementChars < 20;
+}
+
 // ── PDF Parser (pdf-parse@1.1.1) ───────────────────────────────────────────────
 export async function parsePDF(buffer) {
+  let directText = '';
+  let pages = 0;
+  let info = {};
+  let directError = null;
+
   try {
-    const pdfParse = require('pdf-parse');
-    const data = await pdfParse(buffer);
-    return {
-      text: data.text || '',
-      pages: data.numpages || 0,
-      info: data.info || {},
-      success: !!(data.text && data.text.trim()),
-    };
+    const pdfParseModule = require('pdf-parse');
+    if (typeof pdfParseModule === 'function') {
+      const data = await pdfParseModule(buffer);
+      directText = data.text || '';
+      pages = data.numpages || 0;
+      info = data.info || {};
+    } else if (typeof pdfParseModule.PDFParse === 'function') {
+      const parser = new pdfParseModule.PDFParse({ data: buffer });
+      try {
+        const data = await parser.getText();
+        directText = data.text || '';
+        pages = data.total || data.pages || 0;
+        info = data.info || {};
+      } finally {
+        await parser.destroy();
+      }
+    } else {
+      throw new Error('Unsupported pdf-parse module export shape');
+    }
   } catch (e) {
+    directError = e;
     console.error('PDF parse error:', e.message);
-    return { text: '', pages: 0, success: false, error: e.message };
   }
+
+  if (isUsableExtractedText(directText)) {
+    return {
+      text: directText,
+      pages,
+      info,
+      method: 'pdf-parse',
+      success: true,
+    };
+  }
+
+  try {
+    console.warn('PDF text extraction was empty or low quality. Trying Gemini Vision OCR fallback.');
+    const visionText = await extractTextWithGemini(buffer, 'application/pdf');
+    if (isUsableExtractedText(visionText)) {
+      return {
+        text: visionText,
+        pages,
+        info,
+        method: 'gemini-vision-ocr',
+        success: true,
+      };
+    }
+  } catch (e) {
+    console.error('Gemini PDF OCR fallback unavailable:', e.message);
+  }
+
+  return {
+    text: directText || '',
+    pages,
+    info,
+    method: directText ? 'pdf-parse-low-quality' : 'none',
+    success: false,
+    error: directError
+      ? directError.message
+      : 'No extractable text found. This may be a scanned FIR PDF; configure GEMINI_API_KEY for visual OCR fallback or upload a clearer searchable PDF.',
+  };
 }
 
 // ── DOCX Parser ────────────────────────────────────────────────────────────────
@@ -132,7 +200,9 @@ export async function parseFile(buffer, originalName, mimeType) {
     if (text && text.length > 10) {
       return { text, fileType: 'unknown', success: true, originalName };
     }
-  } catch {}
+  } catch (e) {
+    console.warn('Unknown file text fallback failed:', e.message);
+  }
 
   return {
     text: '',
